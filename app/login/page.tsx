@@ -144,6 +144,18 @@ const MOCK_ACCOUNTS: Record<
     name: 'Dr. Sarah Johnson',
     portal: '/teacher/dashboard',
   },
+  PRINCIPAL: {
+    school_id: 'PRI001',
+    password: 'Pass123',
+    name: 'Dr. A. Mensah',
+    portal: '/principal/dashboard',
+  },
+  ADMIN: {
+    school_id: 'ADM001',
+    password: 'Pass123',
+    name: 'System Admin',
+    portal: '/admin/dashboard',
+  },
 }
 
 function base64UrlEncode(value: Record<string, unknown>) {

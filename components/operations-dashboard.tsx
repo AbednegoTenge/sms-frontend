@@ -15,7 +15,7 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Clock,
-  Crown,
+  // Crown,
   Download,
   FileBarChart,
   GraduationCap,
@@ -363,6 +363,7 @@ export function OperationsDashboard({ role }: { role: Role }) {
           name: fullName,
           dept: String(form.get('dept') || 'General Studies'),
           email,
+          phone,
           status: 'active',
           joined: new Date().toISOString().slice(0, 10),
           rating: 4.0,
@@ -381,6 +382,7 @@ export function OperationsDashboard({ role }: { role: Role }) {
           attendance: 100,
           status: 'active',
           email,
+          phone
         },
       ])
       setClasses((current) => current.map((item) => item.id === classId ? { ...item, studentCount: item.studentCount + 1 } : item))

@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type React from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import Cookies from 'js-cookie'
 import {
   AlertTriangle,
@@ -78,6 +78,7 @@ type Student = {
   attendance: number
   status: 'active' | 'warning' | 'at-risk'
   email: string
+  phone?: string
 }
 
 type ClassItem = {
@@ -96,6 +97,16 @@ type Announcement = {
   recipient: string
   content: string
   important: boolean
+}
+
+type FeeReceipt = {
+  id: string
+  studentId: string
+  feeType: string
+  amount: number
+  method: string
+  date: string
+  status: 'pending' | 'validated'
 }
 
 const initialTeachers: Teacher[] = [
@@ -175,6 +186,9 @@ const dayChoices = [
   { value: 4, label: 'Friday' },
 ]
 
+const adminSections: AdminSection[] = ['dashboard', 'teachers', 'students', 'classes', 'fees', 'academic', 'announcements', 'schedule']
+const principalSections: PrincipalSection[] = ['dashboard', 'attendance', 'academics', 'staff', 'students', 'finance', 'announcements', 'reports']
+
 const timetableSlots = [
   { id: 'slot-001', course: 'Mathematics', teacher: 'Dr. Sarah Johnson', level: 'Grade 10', classSection: 'A', term: 'Second Term', dayOfWeek: 0, startTime: '08:00', endTime: '08:45', room: 'Room 101' },
   { id: 'slot-002', course: 'English Language', teacher: 'Ms. Emily Carter', level: 'Grade 10', classSection: 'B', term: 'Second Term', dayOfWeek: 0, startTime: '08:50', endTime: '09:35', room: 'Room 102' },
@@ -207,7 +221,7 @@ function pct(a: number, b: number) {
 }
 
 function money(value: number) {
-  return `NGN ${value.toLocaleString()}`
+  return `₦${value.toLocaleString()}`
 }
 
 function fmtDate(date: string) {
@@ -248,6 +262,7 @@ function StatCard({ icon: Icon, tone, value, label, badge }: { icon: React.Eleme
 
 export function OperationsDashboard({ role }: { role: Role }) {
   const router = useRouter()
+  const pathname = usePathname()
   const [dark, setDark] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [section, setSection] = useState<Section>('dashboard')
@@ -272,6 +287,8 @@ export function OperationsDashboard({ role }: { role: Role }) {
   const pendingFees = totalFees - collectedFees
 
   const isAdmin = role === 'admin'
+  const validSections = isAdmin ? adminSections : principalSections
+  const basePath = isAdmin ? '/admin/dashboard' : '/principal/dashboard'
   const navItems = isAdmin
     ? [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -294,12 +311,24 @@ export function OperationsDashboard({ role }: { role: Role }) {
         { id: 'reports', label: 'Reports', icon: FileBarChart },
       ]
 
+  useEffect(() => {
+    const parts = pathname.split('/').filter(Boolean)
+    const pathSection = parts[2] as Section | undefined
+    const nextSection = pathSection && (validSections as Section[]).includes(pathSection) ? pathSection : 'dashboard'
+    setSection(nextSection)
+  }, [pathname, validSections])
+
+  function sectionHref(next: Section) {
+    return next === 'dashboard' ? basePath : `${basePath}/${next}`
+  }
+
   function navigate(next: Section) {
     setSection(next)
     setShowComposer(false)
     setCreateRole(null)
     setFormNotice('')
     setSidebarOpen(false)
+    router.push(sectionHref(next))
   }
 
   function logout() {
@@ -813,34 +842,152 @@ function Notice({ children }: { children: React.ReactNode }) {
 }
 
 function FinancePage({ role, students, classes, totalFees, collectedFees, pendingFees, feeTab, setFeeTab }: { role: Role; students: Student[]; classes: ClassItem[]; totalFees: number; collectedFees: number; pendingFees: number; feeTab: 'outstanding' | 'paid' | 'history'; setFeeTab: (value: 'outstanding' | 'paid' | 'history') => void }) {
-  const paidStudents = students.filter((_, index) => index % 3 === 0)
-  const owingStudents = students.filter((_, index) => index % 3 !== 0)
-  const progress = pct(collectedFees, totalFees)
+  const feeTotal = feeTypes.reduce((sum, item) => sum + item.amount, 0)
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null)
+  const [recording, setRecording] = useState(false)
+  const [payments, setPayments] = useState<Record<string, number>>(() => Object.fromEntries(students.map((student, index) => [student.id, index % 3 === 0 ? feeTotal : index % 3 === 1 ? 4200 : 0])))
+  const [validated, setValidated] = useState<Record<string, boolean>>(() => Object.fromEntries(students.filter((_, index) => index % 3 === 0).map((student) => [student.id, true])))
+  const [receipts, setReceipts] = useState<FeeReceipt[]>(() => students.filter((_, index) => index % 3 === 0).map((student, index) => ({ id: `RCP-2025-${String(index + 1).padStart(4, '0')}`, studentId: student.id, feeType: 'Tuition', amount: feeTotal, method: 'Cash', date: `2025-01-${String(5 + index).padStart(2, '0')}`, status: 'validated' as const })))
+  const [notice, setNotice] = useState('')
+  const selectedStudent = students.find((student) => student.id === selectedStudentId) ?? null
+  const paidStudents = students.filter((student) => (payments[student.id] ?? 0) >= feeTotal)
+  const owingStudents = students.filter((student) => (payments[student.id] ?? 0) < feeTotal)
+  const collected = students.reduce((sum, student) => sum + (payments[student.id] ?? 0), 0)
+  const progress = pct(collected, students.length * feeTotal)
+
+  function recordPayment(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedStudent) return
+    const form = new FormData(event.currentTarget)
+    const amount = Number(form.get('amount') || 0)
+    const currentPaid = payments[selectedStudent.id] ?? 0
+    const balance = feeTotal - currentPaid
+    if (!amount || amount <= 0 || amount > balance) {
+      setNotice(`Enter an amount between ₦1 and ${money(balance)}.`)
+      return
+    }
+    const nextReceipt = `RCP-2025-${String(receipts.length + 1).padStart(4, '0')}`
+    setPayments((current) => ({ ...current, [selectedStudent.id]: currentPaid + amount }))
+    setValidated((current) => ({ ...current, [selectedStudent.id]: false }))
+    setReceipts((current) => [{ id: nextReceipt, studentId: selectedStudent.id, feeType: String(form.get('fee_type') || 'Tuition'), amount, method: String(form.get('method') || 'Cash'), date: new Date().toISOString().slice(0, 10), status: 'pending' as const }, ...current])
+    setRecording(false)
+    setNotice('')
+  }
+
+  function payAll(studentId: string) {
+    const currentPaid = payments[studentId] ?? 0
+    const balance = feeTotal - currentPaid
+    if (balance <= 0) return
+    const nextReceipt = `RCP-2025-${String(receipts.length + 1).padStart(4, '0')}`
+    setPayments((current) => ({ ...current, [studentId]: feeTotal }))
+    setValidated((current) => ({ ...current, [studentId]: false }))
+    setReceipts((current) => [{ id: nextReceipt, studentId, feeType: 'All Fees', amount: balance, method: 'Cash', date: new Date().toISOString().slice(0, 10), status: 'pending' as const }, ...current])
+  }
+
+  function validate(studentId: string) {
+    setValidated((current) => ({ ...current, [studentId]: true }))
+    setReceipts((current) => current.map((receipt) => receipt.studentId === studentId ? { ...receipt, status: 'validated' as const } : receipt))
+  }
+
   return (
     <div>
       <PageTitle title={role === 'admin' ? 'Fee Collection' : 'Finance Overview'} subtitle="Fee collection and financial summary" />
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard icon={Wallet} tone="cyan" value={money(totalFees)} label="Total Expected" />
-        <StatCard icon={CheckCircle2} tone="emerald" value={money(collectedFees)} label="Collected" badge={<Badge tone="emerald">{progress}%</Badge>} />
-        <StatCard icon={Calendar} tone="amber" value={money(pendingFees)} label="Outstanding" />
-        <StatCard icon={FileBarChart} tone="blue" value={87} label="Receipts Issued" />
+        <StatCard icon={Wallet} tone="cyan" value={money(role === 'admin' ? students.length * feeTotal : totalFees)} label="Total Expected" />
+        <StatCard icon={CheckCircle2} tone="emerald" value={money(role === 'admin' ? collected : collectedFees)} label="Collected" badge={<Badge tone="emerald">{progress}%</Badge>} />
+        <StatCard icon={Calendar} tone="amber" value={money(role === 'admin' ? students.length * feeTotal - collected : pendingFees)} label="Outstanding" />
+        <StatCard icon={FileBarChart} tone="blue" value={role === 'admin' ? receipts.length : 87} label="Receipts Issued" />
       </div>
       <Card className="mb-6 p-5">
         <div className="mb-2 flex items-center justify-between"><span className="text-sm font-medium text-slate-700 dark:text-slate-200">Collection Progress</span><span className="text-lg font-bold text-emerald-600">{progress}%</span></div>
         <div className="h-3 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${progress}%` }} /></div>
       </Card>
-      {role === 'admin' && <div className="mb-5 flex gap-2 overflow-x-auto">{(['outstanding', 'paid', 'history'] as const).map((tab) => <button key={tab} onClick={() => setFeeTab(tab)} className={`rounded-lg border px-4 py-2.5 text-sm font-medium capitalize ${feeTab === tab ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950' : 'border-slate-200 bg-white text-slate-500 dark:border-slate-800 dark:bg-slate-900'}`}>{tab}</button>)}</div>}
-      {role === 'admin' && feeTab !== 'history' ? <FeeStudentList students={feeTab === 'paid' ? paidStudents : owingStudents} classes={classes} paid={feeTab === 'paid'} /> : <ClassCollection classes={classes} />}
+      {role === 'admin' && <div className="mb-5 flex gap-2 overflow-x-auto">{(['outstanding', 'paid', 'history'] as const).map((tab) => <button key={tab} onClick={() => { setFeeTab(tab); setSelectedStudentId(null); setRecording(false) }} className={`inline-flex items-center gap-2 whitespace-nowrap rounded-lg border px-4 py-2.5 text-sm font-medium capitalize ${feeTab === tab ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950' : 'border-slate-200 bg-white text-slate-500 dark:border-slate-800 dark:bg-slate-900'}`}>{tab}<span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] ${feeTab === tab ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'}`}>{tab === 'outstanding' ? owingStudents.length : tab === 'paid' ? paidStudents.length : receipts.length}</span></button>)}</div>}
+      {role !== 'admin' ? <ClassCollection classes={classes} /> : (
+        <div className="grid items-start gap-6 lg:grid-cols-[1fr_420px]">
+          <div>
+            {feeTab === 'history'
+              ? <ReceiptHistory receipts={receipts} students={students} />
+              : <FeeStudentList students={feeTab === 'paid' ? paidStudents : owingStudents} classes={classes} payments={payments} feeTotal={feeTotal} validated={validated} onSelect={(studentId) => { setSelectedStudentId(studentId); setRecording(false); setNotice('') }} selectedStudentId={selectedStudentId} />}
+          </div>
+          <div>
+            {selectedStudent ? (
+              <FeeInvoice student={selectedStudent} classCode={classCode(classes, selectedStudent.classId)} feeTotal={feeTotal} paid={payments[selectedStudent.id] ?? 0} receipts={receipts.filter((receipt) => receipt.studentId === selectedStudent.id)} validated={validated[selectedStudent.id] === true} recording={recording} notice={notice} onRecord={() => setRecording(true)} onCancel={() => setRecording(false)} onSubmit={recordPayment} onPayAll={() => payAll(selectedStudent.id)} onValidate={() => validate(selectedStudent.id)} />
+            ) : (
+              <Card className="hidden rounded-2xl p-10 text-center lg:block">
+                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-50 text-slate-200 dark:bg-slate-800"><Wallet className="h-7 w-7" /></div>
+                <p className="mb-1 text-sm font-medium text-slate-500">Select a Student</p>
+                <p className="text-xs text-slate-400">Click a student to view their invoice and record payments.</p>
+              </Card>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-function FeeStudentList({ students, classes, paid }: { students: Student[]; classes: ClassItem[]; paid: boolean }) {
+function FeeStudentList({ students, classes, payments, feeTotal, validated, selectedStudentId, onSelect }: { students: Student[]; classes: ClassItem[]; payments: Record<string, number>; feeTotal: number; validated: Record<string, boolean>; selectedStudentId: string | null; onSelect: (studentId: string) => void }) {
   return (
     <div className="space-y-2">
-      {students.map((student, index) => <Card key={student.id} className={`flex items-center gap-4 p-4 ${paid ? 'border-emerald-100' : 'border-red-100'}`}><Avatar label={student.name} tone={paid ? 'emerald' : 'blue'} /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-medium text-slate-800 dark:text-slate-100">{student.name}</p><Badge tone={paid ? 'emerald' : index % 2 ? 'amber' : 'red'}>{paid ? 'Paid' : index % 2 ? 'Partial' : 'Unpaid'}</Badge></div><p className="text-xs text-slate-400">{student.id} - {classCode(classes, student.classId)}</p></div><div className="text-right"><p className={`text-[10px] font-medium uppercase ${paid ? 'text-emerald-500' : 'text-red-400'}`}>{paid ? 'Paid' : 'Owed'}</p><p className={`text-lg font-bold ${paid ? 'text-emerald-600' : 'text-red-500'}`}>{money(paid ? 8200 : 4100 + index * 250)}</p></div></Card>)}
+      {students.length === 0 && <Card className="p-12 text-center text-sm text-slate-400">No students found.</Card>}
+      {students.map((student) => {
+        const paid = payments[student.id] ?? 0
+        const balance = feeTotal - paid
+        const isPaid = balance <= 0
+        const isSelected = selectedStudentId === student.id
+        return (
+          <button key={student.id} type="button" onClick={() => onSelect(student.id)} className={`flex w-full items-center gap-4 rounded-xl border bg-white p-4 text-left transition-all dark:bg-slate-900 ${isSelected ? 'border-emerald-200 ring-1 ring-emerald-200 dark:border-emerald-900' : isPaid ? 'border-emerald-100 hover:bg-emerald-50/30 dark:border-emerald-900 dark:hover:bg-emerald-950/30' : 'border-slate-200 hover:border-red-200 hover:bg-red-50/20 dark:border-slate-800 dark:hover:bg-red-950/20'}`}>
+            <Avatar label={student.name} tone={isPaid ? 'emerald' : 'blue'} />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2"><p className="text-sm font-medium text-slate-800 dark:text-slate-100">{student.name}</p><Badge tone={isPaid ? 'emerald' : paid > 0 ? 'amber' : 'red'}>{isPaid ? 'Paid' : paid > 0 ? 'Partial' : 'Unpaid'}</Badge>{isPaid && validated[student.id] && <Badge tone="blue">Validated</Badge>}</div>
+              <p className="text-xs text-slate-400">{student.id} - {classCode(classes, student.classId)} - Bill: {money(feeTotal)}</p>
+            </div>
+            <div className="border-l border-slate-100 pl-3 text-right dark:border-slate-800"><p className={`text-[10px] font-medium uppercase ${isPaid ? 'text-emerald-500' : 'text-red-400'}`}>{isPaid ? 'Paid' : 'Owed'}</p><p className={`text-lg font-bold ${isPaid ? 'text-emerald-600' : 'text-red-500'}`}>{money(isPaid ? paid : balance)}</p></div>
+          </button>
+        )
+      })}
     </div>
   )
+}
+
+function ReceiptHistory({ receipts, students }: { receipts: FeeReceipt[]; students: Student[] }) {
+  return (
+    <Card className="overflow-hidden rounded-2xl">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">{['Receipt #', 'Date', 'Student', 'Fee Type', 'Amount', 'Status'].map((header) => <th key={header} className="px-4 py-3 text-left text-xs font-medium uppercase text-slate-500">{header}</th>)}</tr></thead>
+          <tbody>{receipts.map((receipt) => { const student = students.find((item) => item.id === receipt.studentId); return <tr key={receipt.id} className="border-b border-slate-100 dark:border-slate-800"><td className="px-4 py-3 font-mono text-xs text-slate-600 dark:text-slate-300">{receipt.id}</td><td className="px-4 py-3 text-xs text-slate-400">{fmtDate(receipt.date)}</td><td className="px-4 py-3"><p className="text-sm font-medium text-slate-800 dark:text-slate-100">{student?.name ?? 'Unknown'}</p><p className="font-mono text-[11px] text-slate-400">{receipt.studentId}</p></td><td className="px-4 py-3 text-slate-500">{receipt.feeType}</td><td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-100">{money(receipt.amount)}</td><td className="px-4 py-3"><Badge tone={receipt.status === 'validated' ? 'emerald' : 'amber'}>{receipt.status === 'validated' ? 'Validated' : 'Pending'}</Badge></td></tr> })}</tbody>
+        </table>
+      </div>
+    </Card>
+  )
+}
+
+function FeeInvoice(props: { student: Student; classCode: string; feeTotal: number; paid: number; receipts: FeeReceipt[]; validated: boolean; recording: boolean; notice: string; onRecord: () => void; onCancel: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void; onPayAll: () => void; onValidate: () => void }) {
+  const balance = props.feeTotal - props.paid
+  const cleared = balance <= 0 && props.validated
+  return (
+    <Card className="overflow-hidden rounded-2xl">
+      <div className="bg-slate-900 px-5 py-4 text-white dark:bg-slate-100 dark:text-slate-950">
+        <div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100/20"><ShieldCheck className="h-5 w-5 text-emerald-400" /></div><div className="flex-1"><p className="text-sm font-semibold">Greenfield Academy</p><p className="text-[10px] text-slate-400">Fee Invoice</p></div>{cleared && <Badge tone="emerald">Cleared</Badge>}</div>
+      </div>
+      <div className="grid grid-cols-2 gap-3 border-b border-slate-100 px-5 py-4 dark:border-slate-800"><InfoBlock label="Student" value={props.student.name} /><InfoBlock label="ID / Class" value={`${props.student.id} - ${props.classCode}`} /></div>
+      <div className="border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+        <h4 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Fee Breakdown</h4>
+        <table className="w-full text-sm"><tbody>{feeTypes.map((fee) => { const feePaid = Math.min(Math.max(props.paid - feeTypes.slice(0, feeTypes.indexOf(fee)).reduce((sum, item) => sum + item.amount, 0), 0), fee.amount); return <tr key={fee.type} className="border-t border-slate-50 dark:border-slate-800"><td className="py-2.5 text-slate-700 dark:text-slate-200">{fee.type}</td><td className="py-2.5 text-right text-slate-500">{money(fee.amount)}</td><td className="py-2.5 text-right font-medium text-emerald-600">{feePaid > 0 ? money(feePaid) : '-'}</td><td className="py-2.5 text-right font-semibold text-red-500">{fee.amount - feePaid > 0 ? money(fee.amount - feePaid) : '-'}</td></tr> })}</tbody></table>
+      </div>
+      <div className="flex justify-between bg-slate-50 px-5 py-3 text-sm dark:bg-slate-950"><span className="font-semibold text-slate-700 dark:text-slate-200">Total</span><div className="flex gap-5"><span className="text-slate-500">{money(props.feeTotal)}</span><span className="font-semibold text-emerald-600">{money(props.paid)}</span><span className="font-bold text-red-500">{balance > 0 ? money(balance) : '-'}</span></div></div>
+      <div className="px-5 py-4"><h4 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Payment History ({props.receipts.length})</h4>{props.receipts.length ? <div className="max-h-40 space-y-2 overflow-y-auto">{props.receipts.map((receipt) => <div key={receipt.id} className={`flex items-center justify-between rounded-lg border p-2.5 ${receipt.status === 'validated' ? 'border-emerald-100 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/30' : 'border-amber-100 bg-amber-50/60 dark:border-amber-900 dark:bg-amber-950/30'}`}><div><p className={`font-mono text-xs font-medium ${receipt.status === 'validated' ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>{receipt.id}</p><p className="text-[10px] text-slate-400">{fmtDate(receipt.date)} - {receipt.method} - {receipt.feeType}</p></div><div className="text-right"><p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{money(receipt.amount)}</p><p className={`text-[10px] ${receipt.status === 'validated' ? 'text-emerald-600' : 'text-amber-600'}`}>{receipt.status === 'validated' ? 'Validated' : 'Pending'}</p></div></div>)}</div> : <p className="text-xs italic text-slate-400">No payments recorded yet.</p>}</div>
+      {props.notice && <div className="mx-5 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-medium text-red-600 dark:border-red-900 dark:bg-red-950">{props.notice}</div>}
+      {props.recording && <form onSubmit={props.onSubmit} className="mx-5 my-4 space-y-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950/30"><h4 className="flex items-center gap-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300"><Wallet className="h-4 w-4" />Record Payment</h4><div className="grid grid-cols-2 gap-3"><select name="fee_type" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">{feeTypes.map((fee) => <option key={fee.type}>{fee.type}</option>)}</select><input name="amount" type="number" min={1} max={balance} defaultValue={balance} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900" /><select name="method" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"><option>Cash</option><option>Bank Transfer</option><option>Card</option><option>Mobile Money</option></select></div><div className="flex gap-2"><button className="flex-1 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-500">Confirm Payment</button><button type="button" onClick={props.onCancel} className="rounded-lg px-4 py-2.5 text-sm font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button></div></form>}
+      <div className="space-y-2 border-t border-slate-100 p-5 dark:border-slate-800">{!props.recording && balance > 0 && <button onClick={props.onRecord} className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 text-sm font-medium text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950"><Wallet className="h-4 w-4" />Record Payment</button>}{!props.recording && balance > 0 && <button onClick={props.onPayAll} className="flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-200 py-2.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900 dark:text-emerald-300 dark:hover:bg-emerald-950"><CheckCircle2 className="h-4 w-4" />Pay All ({money(balance)})</button>}{!props.recording && balance <= 0 && !props.validated && <button onClick={props.onValidate} className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 py-3 text-sm font-semibold text-white hover:bg-emerald-500"><ShieldCheck className="h-5 w-5" />Validate & Sign Off</button>}{cleared && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-center text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300"><ShieldCheck className="mx-auto h-6 w-6" /><p className="mt-1 text-sm font-semibold">Fee Cleared & Validated</p><p className="text-[11px]">Signed off by System Admin</p></div>}</div>
+    </Card>
+  )
+}
+
+function InfoBlock({ label, value }: { label: string; value: string }) {
+  return <div><p className="text-[10px] uppercase tracking-wider text-slate-400">{label}</p><p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{value}</p></div>
 }
 
 function ClassCollection({ classes }: { classes: ClassItem[] }) {

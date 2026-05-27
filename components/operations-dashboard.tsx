@@ -328,7 +328,7 @@ export function OperationsDashboard({ role }: { role: Role }) {
     setCreateRole(null)
     setFormNotice('')
     setSidebarOpen(false)
-    router.push(sectionHref(next))
+    window.history.pushState(null, '', sectionHref(next))
   }
 
   function logout() {

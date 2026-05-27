@@ -1,7 +1,7 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 import Cookies from 'js-cookie'
 import {
   AlertCircle,
@@ -352,6 +352,10 @@ const navItems = [
   { id: 'announcements', label: 'Announcements', icon: Megaphone },
 ] as const
 
+const navSections = navItems.map((item) => item.id)
+const detailSections: Section[] = ['course-detail', 'assignment-view', 'quiz-view']
+const validSections: Section[] = [...navSections, ...detailSections]
+
 function formatDate(date: string) {
   return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
@@ -366,6 +370,7 @@ function fileIcon(typeOrName: string) {
 
 export default function StudentDashboard() {
   const router = useRouter()
+  const pathname = usePathname()
   const editorRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [dark, setDark] = useState(false)
@@ -388,6 +393,22 @@ export default function StudentDashboard() {
   const selectedAssignment = allAssignments.find(({ id }) => id === assignmentId)
   const selectedQuiz = allQuizzes.find(({ id }) => id === quizId)
 
+  useEffect(() => {
+    const parts = pathname.split('/').filter(Boolean)
+    const pathSection = parts[2] as Section | undefined
+    if (pathSection && validSections.includes(pathSection)) {
+      setSection(pathSection)
+    } else {
+      setSection('dashboard')
+    }
+  }, [pathname])
+
+  const sectionHref = (next: Section) => next === 'dashboard' ? '/student/dashboard' : `/student/dashboard/${next}`
+
+  const updateUrl = (next: Section) => {
+    window.history.pushState(null, '', sectionHref(next))
+  }
+
   const go = (next: Section) => {
     setSection(next)
     setCourseId(null)
@@ -397,6 +418,7 @@ export default function StudentDashboard() {
     setQuizAnswers({})
     setSelectedFile(null)
     setSidebarOpen(false)
+    updateUrl(next)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -405,12 +427,14 @@ export default function StudentDashboard() {
     setCourseTab('outline')
     setSection('course-detail')
     setSidebarOpen(false)
+    updateUrl('course-detail')
   }
 
   const openAssignment = (id: number) => {
     setAssignmentId(id)
     setSelectedFile(null)
     setSection('assignment-view')
+    updateUrl('assignment-view')
   }
 
   const openQuiz = (id: number) => {
@@ -418,6 +442,7 @@ export default function StudentDashboard() {
     setQuizStarted(false)
     setQuizAnswers({})
     setSection('quiz-view')
+    updateUrl('quiz-view')
   }
 
   const logout = () => {

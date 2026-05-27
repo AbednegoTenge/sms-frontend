@@ -2,8 +2,8 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 
-import { FormEvent, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { FormEvent, useEffect, useState } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 import Cookies from 'js-cookie'
 import {
   BarChart3,
@@ -171,12 +171,17 @@ const navItems = [
   { id: 'announcements', label: 'Announcements', icon: Megaphone },
 ] as const
 
+const navSections = navItems.map((item) => item.id)
+const detailSections: Section[] = ['class-detail', 'assign-create', 'assign-detail', 'quiz-create', 'quiz-subs']
+const validSections: Section[] = [...navSections, ...detailSections]
+
 function fmtDate(date: string) {
   return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 export default function TeacherDashboard() {
   const router = useRouter()
+  const pathname = usePathname()
   const [section, setSection] = useState<Section>('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [dark, setDark] = useState(false)
@@ -201,11 +206,28 @@ export default function TeacherDashboard() {
   const ungradedCount = assignments.reduce((n, a) => n + a.submissions.filter((s) => s.score === null).length, 0)
   const ungradedForClass = (id: number) => assignments.filter((a) => a.classId === id).reduce((n, a) => n + a.submissions.filter((s) => s.score === null).length, 0)
 
+  useEffect(() => {
+    const parts = pathname.split('/').filter(Boolean)
+    const pathSection = parts[2] as Section | undefined
+    if (pathSection && validSections.includes(pathSection)) {
+      setSection(pathSection)
+    } else {
+      setSection('dashboard')
+    }
+  }, [pathname])
+
+  const sectionHref = (next: Section) => next === 'dashboard' ? '/teacher/dashboard' : `/teacher/dashboard/${next}`
+
+  const updateUrl = (next: Section) => {
+    window.history.pushState(null, '', sectionHref(next))
+  }
+
   const go = (next: Section) => {
     setSection(next)
     setSelectedSubId(null)
     setSubFilter('all')
     setSidebarOpen(false)
+    updateUrl(next)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 

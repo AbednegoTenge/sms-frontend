@@ -3,9 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Cookies from 'js-cookie'
+import { announcementsApi, assignmentsApi, quizzesApi, studentsApi } from '@/lib/api/school'
+import { useAuthStore } from '@/lib/store/authStore'
 import {
   AlertCircle,
   Archive,
+  BadgeCheck,
   BarChart3,
   BookOpen,
   Calendar,
@@ -46,6 +49,9 @@ type Section =
   | 'quizzes'
   | 'quiz-view'
   | 'gradebook'
+  | 'fees'
+  | 'evaluations'
+  | 'support'
   | 'schedule'
   | 'announcements'
 type CourseTab = 'outline' | 'resources' | 'assignments' | 'quizzes' | 'grades'
@@ -348,6 +354,9 @@ const navItems = [
   { id: 'assignments', label: 'Assignments', icon: ClipboardList },
   { id: 'quizzes', label: 'Quizzes', icon: HelpCircle },
   { id: 'gradebook', label: 'Gradebook', icon: BarChart3 },
+  { id: 'fees', label: 'Fees', icon: BadgeCheck },
+  { id: 'evaluations', label: 'Evaluations', icon: CheckCircle2 },
+  { id: 'support', label: 'Support', icon: AlertCircle },
   { id: 'schedule', label: 'Schedule', icon: Calendar },
   { id: 'announcements', label: 'Announcements', icon: Megaphone },
 ] as const
@@ -355,6 +364,18 @@ const navItems = [
 const navSections = navItems.map((item) => item.id)
 const detailSections: Section[] = ['course-detail', 'assignment-view', 'quiz-view']
 const validSections: Section[] = [...navSections, ...detailSections]
+
+const listItems = <T,>(value: unknown): T[] => {
+  if (Array.isArray(value)) return value as T[]
+  if (value && typeof value === 'object' && Array.isArray((value as { results?: unknown }).results)) return (value as { results: T[] }).results
+  return []
+}
+const asRecord = (value: unknown): Record<string, unknown> => value && typeof value === 'object' ? value as Record<string, unknown> : {}
+const textValue = (value: unknown, fallback = '') => typeof value === 'string' && value.trim() ? value : fallback
+const numberValue = (value: unknown, fallback = 0) => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
 
 function formatDate(date: string) {
   return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -371,12 +392,14 @@ function fileIcon(typeOrName: string) {
 export default function StudentDashboard() {
   const router = useRouter()
   const pathname = usePathname()
+  const authUser = useAuthStore((state) => state.user)
   const editorRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [dark, setDark] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [section, setSection] = useState<Section>('dashboard')
-  const [courses, setCourses] = useState(initialCourses)
+  const [courses, setCourses] = useState<Course[]>([])
+  const [apiNotice, setApiNotice] = useState('Loading live student data from the API...')
   const [courseId, setCourseId] = useState<number | null>(null)
   const [courseTab, setCourseTab] = useState<CourseTab>('outline')
   const [assignmentFilter, setAssignmentFilter] = useState('all')
@@ -392,6 +415,106 @@ export default function StudentDashboard() {
   const selectedCourse = courses.find((course) => course.id === courseId) ?? courses[0]
   const selectedAssignment = allAssignments.find(({ id }) => id === assignmentId)
   const selectedQuiz = allQuizzes.find(({ id }) => id === quizId)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadStudentData() {
+      const studentId = authUser?.id
+      if (!studentId) {
+        setCourses([])
+        setApiNotice('Sign in with a backend student account to load live course, assignment, quiz, and announcement data.')
+        return
+      }
+
+      setApiNotice('Loading live student data from the API...')
+      try {
+        const [courseRecords, assignmentRecords, quizRecords] = await Promise.all([
+          studentsApi.courses(studentId),
+          assignmentsApi.list({ page_size: 100 }),
+          quizzesApi.list({ page_size: 100 }),
+          announcementsApi.list({ page_size: 20 }).catch(() => null),
+        ])
+
+        if (cancelled) return
+
+        const apiAssignments = listItems(assignmentRecords)
+        const apiQuizzes = listItems(quizRecords)
+        const mappedCourses = listItems(courseRecords).map((item, index): Course => {
+          const record = asRecord(item)
+          const course = asRecord(record.course ?? item)
+          const courseId = textValue(course.id, textValue(record.id, String(index + 1)))
+          const courseAssignments = apiAssignments.filter((assignment) => {
+            const assignmentRecord = asRecord(assignment)
+            const assignmentCourse = asRecord(assignmentRecord.course)
+            return textValue(assignmentCourse.id, textValue(assignmentRecord.course_id)) === courseId
+          })
+          const courseQuizzes = apiQuizzes.filter((quiz) => {
+            const quizRecord = asRecord(quiz)
+            const quizCourse = asRecord(quizRecord.course)
+            return textValue(quizCourse.id, textValue(quizRecord.course_id)) === courseId
+          })
+
+          return {
+            id: index + 1,
+            name: textValue(course.name, `Course ${index + 1}`),
+            code: textValue(course.code, 'COURSE'),
+            lecturer: textValue(asRecord(record.teacher).full_name, textValue(record.teacher_name, 'Teacher')),
+            color: ['emerald', 'blue', 'amber', 'purple', 'cyan', 'rose'][index % 6] as ColorName,
+            progress: numberValue(record.progress, 0),
+            credits: numberValue(record.credits, 0),
+            outline: [],
+            resources: [],
+            assignments: courseAssignments.map((assignment, assignmentIndex): Assignment => {
+              const assignmentRecord = asRecord(assignment)
+              return {
+                id: numberValue(assignmentRecord.numeric_id, assignmentIndex + 1),
+                title: textValue(assignmentRecord.title, `Assignment ${assignmentIndex + 1}`),
+                due: textValue(assignmentRecord.due_datetime, textValue(assignmentRecord.due, new Date().toISOString())),
+                status: textValue(assignmentRecord.status, 'open').toLowerCase() === 'graded' ? 'graded' : textValue(assignmentRecord.status, 'open').toLowerCase() === 'closed' ? 'closed' : 'open',
+                score: typeof assignmentRecord.score === 'number' ? assignmentRecord.score : null,
+                max: numberValue(assignmentRecord.total_marks, numberValue(assignmentRecord.max_score, 100)),
+                submittedDate: textValue(assignmentRecord.submitted_at),
+                submittedFile: undefined,
+                attempts: numberValue(assignmentRecord.attempts, 0),
+                maxAttempts: numberValue(assignmentRecord.max_attempts, 1),
+                question: textValue(assignmentRecord.instructions, textValue(assignmentRecord.question)),
+              }
+            }),
+            quizzes: courseQuizzes.map((quiz, quizIndex): Quiz => {
+              const quizRecord = asRecord(quiz)
+              return {
+                id: numberValue(quizRecord.numeric_id, quizIndex + 1),
+                title: textValue(quizRecord.title, `Quiz ${quizIndex + 1}`),
+                due: textValue(quizRecord.due_datetime, new Date().toISOString()),
+                status: textValue(quizRecord.status, 'open').toLowerCase() === 'graded' ? 'graded' : textValue(quizRecord.status, 'open').toLowerCase() === 'submitted' ? 'submitted' : 'open',
+                score: typeof quizRecord.score === 'number' ? quizRecord.score : null,
+                max: numberValue(quizRecord.total_marks, 0),
+                attempts: numberValue(quizRecord.attempts, 0),
+                maxAttempts: numberValue(quizRecord.max_attempts, 1),
+                instructions: textValue(quizRecord.instructions),
+                questions: [],
+              }
+            }),
+            grades: { midterm: 0, quizzes: 0, assignments: 0, overall: 0, grade: '-', gpa: 0 },
+          }
+        })
+
+        setCourses(mappedCourses)
+        setApiNotice(mappedCourses.length ? '' : 'No enrolled courses were returned by the API.')
+      } catch (error) {
+        if (!cancelled) {
+          setCourses([])
+          setApiNotice(error instanceof Error ? error.message : 'Could not load student data from the API.')
+        }
+      }
+    }
+
+    loadStudentData()
+    return () => {
+      cancelled = true
+    }
+  }, [authUser?.id])
 
   useEffect(() => {
     const parts = pathname.split('/').filter(Boolean)
@@ -546,6 +669,7 @@ export default function StudentDashboard() {
 
           <main className="flex-1 overflow-y-auto pt-14 lg:pt-0">
             <div className="max-w-6xl p-5 lg:p-8">
+              {apiNotice && <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">{apiNotice}</div>}
               {section === 'dashboard' && <Dashboard courses={courses} assignments={allAssignments} quizzes={allQuizzes} openAssignment={openAssignment} />}
               {section === 'courses' && <Courses courses={courses} openCourse={openCourse} />}
               {section === 'course-detail' && <CourseDetail course={selectedCourse} tab={courseTab} setTab={setCourseTab} openAssignment={openAssignment} openQuiz={openQuiz} />}
@@ -574,6 +698,9 @@ export default function StudentDashboard() {
                 />
               )}
               {section === 'gradebook' && <Gradebook courses={courses} />}
+              {section === 'fees' && <StudentApiFeaturePage title="My Fees" subtitle="View your own StudentFee records from GET /students/{id}/fees and GET /student-fees/{id}/." features={['Fee balance by term', 'Payment status and amount paid', 'Receipt/payment history when provided by backend']} />}
+              {section === 'evaluations' && <StudentApiFeaturePage title="Teacher Evaluations" subtitle="Submit one teacher evaluation per course and term." features={['POST /evaluations with teacher_id, course_id, term_id, rating, and comment', 'Show completed evaluations to prevent duplicates', 'Limit course options to enrolled courses']} />}
+              {section === 'support' && <StudentApiFeaturePage title="Support Tickets" subtitle="Create and track your own support requests." features={['GET /support-tickets for your tickets', 'POST /support-tickets to request help', 'Show ticket status and latest update']} />}
               {section === 'schedule' && <Schedule courses={courses} />}
               {section === 'announcements' && <Announcements />}
             </div>
@@ -1276,6 +1403,26 @@ function Announcements() {
               <span className="flex items-center gap-1"><Calendar className="h-4 w-4" />{formatDate(announcement.date)}</span>
               <span className="h-1 w-1 rounded-full bg-slate-200 dark:bg-slate-700" />
               <span className="flex items-center gap-1"><Tag className="h-4 w-4" />{announcement.source}</span>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function StudentApiFeaturePage({ title, subtitle, features }: { title: string; subtitle: string; features: string[] }) {
+  return (
+    <div>
+      <PageTitle title={title} subtitle={subtitle} />
+      <div className="grid gap-4 md:grid-cols-2">
+        {features.map((feature) => (
+          <Card key={feature} className="p-5">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300">
+                <Check className="h-4 w-4" />
+              </div>
+              <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">{feature}</p>
             </div>
           </Card>
         ))}

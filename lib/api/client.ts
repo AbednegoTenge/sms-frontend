@@ -1,8 +1,22 @@
 import axios from 'axios'
 import Cookies from 'js-cookie'
 
+const API_BASE_URL = (() => {
+  const rawUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000/api/v1'
+  const trimmedUrl = rawUrl.replace(/\/+$/, '')
+  return trimmedUrl.endsWith('/api/v1') ? trimmedUrl : `${trimmedUrl}/api/v1`
+})()
+
+const authCookieOptions = () => ({
+  sameSite: 'strict' as const,
+  path: '/',
+  ...(typeof window !== 'undefined' && window.location.protocol === 'https:'
+    ? { secure: true }
+    : {}),
+})
+
 export const apiClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL,
+  baseURL: API_BASE_URL,
   headers: { 'Content-Type': 'application/json' },
   withCredentials: true,
 })
@@ -21,6 +35,10 @@ apiClient.interceptors.response.use(
   async (error) => {
     const original = error.config
 
+    if (original.url?.includes('/login/')) {
+      return Promise.reject(error)
+    }
+
     if (error.response?.status === 401 && !original._retry) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
@@ -36,12 +54,11 @@ apiClient.interceptors.response.use(
 
       try {
         const refresh = Cookies.get('refresh_token')
-        const { data } = await axios.post(
-          `${process.env.NEXT_PUBLIC_API_URL}/auth/refresh/`,
-          { refresh }
-        )
+        if (!refresh) throw new Error('No refresh token available')
+
+        const { data } = await axios.post(`${API_BASE_URL}/refresh/`, { refresh })
         const newToken = data.data.access
-        Cookies.set('access_token', newToken)
+        Cookies.set('access_token', newToken, authCookieOptions())
         failedQueue.forEach((p) => p.resolve(newToken))
         failedQueue = []
         original.headers.Authorization = `Bearer ${newToken}`
@@ -49,11 +66,13 @@ apiClient.interceptors.response.use(
       } catch (err) {
         failedQueue.forEach((p) => p.reject(err))
         failedQueue = []
-        Cookies.remove('access_token')
-        Cookies.remove('refresh_token')
-        if (typeof window !== 'undefined') {
+        Cookies.remove('access_token', { path: '/' })
+        Cookies.remove('refresh_token', { path: '/' })
+        Cookies.remove('active_role', { path: '/' })
+        if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
           window.location.href = '/login'
         }
+        return Promise.reject(err)
       } finally {
         isRefreshing = false
       }

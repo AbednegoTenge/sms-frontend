@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import type React from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Cookies from 'js-cookie'
+import { getUsers } from '@/lib/api/users'
+import { announcementsApi, coursesApi, feesApi, reportsApi, studentsApi } from '@/lib/api/school'
 import {
   AlertTriangle,
   BarChart3,
@@ -47,15 +49,22 @@ type PrincipalSection =
   | 'finance'
   | 'announcements'
   | 'reports'
+  | 'evaluations'
+  | 'support'
 type AdminSection =
   | 'dashboard'
+  | 'users'
   | 'teachers'
   | 'students'
   | 'classes'
+  | 'course-management'
+  | 'enrollment'
   | 'fees'
   | 'academic'
   | 'announcements'
   | 'schedule'
+  | 'support'
+  | 'evaluations'
 type Section = PrincipalSection | AdminSection
 type CreateRole = 'STUDENT' | 'TEACHER'
 
@@ -107,6 +116,27 @@ type FeeReceipt = {
   method: string
   date: string
   status: 'pending' | 'validated'
+}
+
+function listItems<T = Record<string, unknown>>(value: unknown): T[] {
+  if (Array.isArray(value)) return value as T[]
+  if (value && typeof value === 'object' && Array.isArray((value as { results?: unknown }).results)) {
+    return (value as { results: T[] }).results
+  }
+  return []
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? value as Record<string, unknown> : {}
+}
+
+function textValue(value: unknown, fallback = '') {
+  return typeof value === 'string' && value.trim() ? value : fallback
+}
+
+function numberValue(value: unknown, fallback = 0) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
 }
 
 const initialTeachers: Teacher[] = [
@@ -186,8 +216,8 @@ const dayChoices = [
   { value: 4, label: 'Friday' },
 ]
 
-const adminSections: AdminSection[] = ['dashboard', 'teachers', 'students', 'classes', 'fees', 'academic', 'announcements', 'schedule']
-const principalSections: PrincipalSection[] = ['dashboard', 'attendance', 'academics', 'staff', 'students', 'finance', 'announcements', 'reports']
+const adminSections: AdminSection[] = ['dashboard', 'users', 'teachers', 'students', 'classes', 'course-management', 'enrollment', 'fees', 'academic', 'announcements', 'schedule', 'support', 'evaluations']
+const principalSections: PrincipalSection[] = ['dashboard', 'attendance', 'academics', 'staff', 'students', 'finance', 'announcements', 'reports', 'evaluations', 'support']
 
 const timetableSlots = [
   { id: 'slot-001', course: 'Mathematics', teacher: 'Dr. Sarah Johnson', level: 'Grade 10', classSection: 'A', term: 'Second Term', dayOfWeek: 0, startTime: '08:00', endTime: '08:45', room: 'Room 101' },
@@ -266,25 +296,29 @@ export function OperationsDashboard({ role }: { role: Role }) {
   const [dark, setDark] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [section, setSection] = useState<Section>('dashboard')
-  const [teachers, setTeachers] = useState<Teacher[]>(initialTeachers)
-  const [students, setStudents] = useState<Student[]>(initialStudents)
-  const [classes, setClasses] = useState<ClassItem[]>(initialClasses)
-  const [announcements, setAnnouncements] = useState<Announcement[]>(initialAnnouncements)
+  const [teachers, setTeachers] = useState<Teacher[]>([])
+  const [students, setStudents] = useState<Student[]>([])
+  const [classes, setClasses] = useState<ClassItem[]>([])
+  const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [search, setSearch] = useState('')
   const [classFilter, setClassFilter] = useState('all')
   const [feeTab, setFeeTab] = useState<'outstanding' | 'paid' | 'history'>('outstanding')
   const [showComposer, setShowComposer] = useState(false)
   const [createRole, setCreateRole] = useState<CreateRole | null>(null)
   const [formNotice, setFormNotice] = useState('')
+  const [loadingData, setLoadingData] = useState(true)
+  const [dataError, setDataError] = useState('')
+  const [reportTotals, setReportTotals] = useState({ totalFees: 0, collectedFees: 0, pendingFees: 0 })
 
   const totalStudents = classes.reduce((sum, item) => sum + item.studentCount, 0)
   const activeTeachers = teachers.filter((item) => item.status === 'active').length
   const totalPresent = attendance.reduce((sum, item) => sum + item.present, 0)
   const avgAttendance = pct(totalPresent, attendance.reduce((sum, item) => sum + item.total, 0))
   const atRiskCount = students.filter((item) => item.status === 'at-risk').length
-  const totalFees = students.length * feeTypes.reduce((sum, item) => sum + item.amount, 0)
-  const collectedFees = Math.round(totalFees * 0.75)
-  const pendingFees = totalFees - collectedFees
+  const fallbackTotalFees = students.length * feeTypes.reduce((sum, item) => sum + item.amount, 0)
+  const totalFees = reportTotals.totalFees || fallbackTotalFees
+  const collectedFees = reportTotals.collectedFees
+  const pendingFees = reportTotals.pendingFees || Math.max(totalFees - collectedFees, 0)
 
   const isAdmin = role === 'admin'
   const validSections = isAdmin ? adminSections : principalSections
@@ -292,13 +326,18 @@ export function OperationsDashboard({ role }: { role: Role }) {
   const navItems = isAdmin
     ? [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        { id: 'users', label: 'Users & Roles', icon: UserPlus },
         { id: 'teachers', label: 'Teachers', icon: GraduationCap },
         { id: 'students', label: 'Students', icon: Users },
         { id: 'classes', label: 'Classes', icon: School },
+        { id: 'course-management', label: 'Courses', icon: BookOpen },
+        { id: 'enrollment', label: 'Enrollment', icon: CheckCircle2 },
         { id: 'fees', label: 'Fee Collection', icon: Wallet },
         { id: 'academic', label: 'Academic', icon: CalendarDays },
         { id: 'announcements', label: 'Announcements', icon: Megaphone },
         { id: 'schedule', label: 'Schedule', icon: Calendar },
+        { id: 'support', label: 'Support', icon: AlertTriangle },
+        { id: 'evaluations', label: 'Evaluations', icon: BarChart3 },
       ]
     : [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -309,6 +348,8 @@ export function OperationsDashboard({ role }: { role: Role }) {
         { id: 'finance', label: 'Finance', icon: Wallet },
         { id: 'announcements', label: 'Announcements', icon: Megaphone },
         { id: 'reports', label: 'Reports', icon: FileBarChart },
+        { id: 'evaluations', label: 'Evaluations', icon: BarChart3 },
+        { id: 'support', label: 'Support', icon: AlertTriangle },
       ]
 
   useEffect(() => {
@@ -317,6 +358,118 @@ export function OperationsDashboard({ role }: { role: Role }) {
     const nextSection = pathSection && (validSections as Section[]).includes(pathSection) ? pathSection : 'dashboard'
     setSection(nextSection)
   }, [pathname, validSections])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadDashboardData() {
+      setLoadingData(true)
+      setDataError('')
+
+      try {
+        const [teacherUsers, studentRecords, courseRecords, announcementRecords, feeReport] = await Promise.all([
+          getUsers({ role: 'TEACHER', page_size: '100' }),
+          studentsApi.list({ page_size: 100 }),
+          coursesApi.list({ page_size: 100 }),
+          announcementsApi.list({ page_size: 20 }),
+          reportsApi.feeCollection().catch(() => null),
+        ])
+
+        if (cancelled) return
+
+        const apiTeachers = listItems(teacherUsers).map((item, index): Teacher => {
+          const record = asRecord(item)
+          return {
+            id: textValue(record.school_id, textValue(record.id, `TCH-${String(index + 1).padStart(3, '0')}`)),
+            name: textValue(record.full_name, 'Unnamed Teacher'),
+            dept: textValue(record.department, textValue(record.dept, 'Teaching Staff')),
+            email: textValue(record.email),
+            status: record.is_active === false ? 'on-leave' : 'active',
+            joined: textValue(record.date_joined, new Date().toISOString()),
+            rating: numberValue(record.rating, 0),
+          }
+        })
+
+        const apiStudents = listItems(studentRecords).map((item, index): Student => {
+          const record = asRecord(item)
+          const classKey = `${record.level ?? ''}${record.class_section ?? ''}` || String(record.class_section ?? index + 1)
+          return {
+            id: textValue(record.school_id, textValue(record.id, `STD-${String(index + 1).padStart(3, '0')}`)),
+            name: textValue(record.full_name, 'Unnamed Student'),
+            classId: Math.max(1, Math.abs(classKey.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)) % 50),
+            gender: record.gender === 'Male' ? 'Male' : 'Female',
+            avgGrade: numberValue(record.avg_grade, 0),
+            attendance: numberValue(record.attendance, 0),
+            status: record.status === 'SUSPENDED' ? 'at-risk' : record.status === 'INACTIVE' ? 'warning' : 'active',
+            email: textValue(record.email),
+          }
+        })
+
+        const derivedClasses = Array.from(new Map(apiStudents.map((student) => {
+          const source = asRecord(listItems(studentRecords).find((item) => textValue(asRecord(item).school_id, textValue(asRecord(item).id)) === student.id))
+          const code = `${source.level ? `L${source.level}` : 'L'}-${textValue(source.class_section, String(student.classId))}`
+          return [student.classId, {
+            id: student.classId,
+            name: `${source.level ? `Level ${source.level}` : 'Class'} ${textValue(source.class_section, String(student.classId))}`,
+            code,
+            teacherId: apiTeachers[0]?.id ?? '',
+            studentCount: apiStudents.filter((item) => item.classId === student.classId).length,
+          } satisfies ClassItem]
+        })).values())
+
+        const courseClasses = derivedClasses.length > 0 ? derivedClasses : listItems(courseRecords).map((item, index): ClassItem => {
+          const record = asRecord(item)
+          return {
+            id: index + 1,
+            name: textValue(record.name, `Course ${index + 1}`),
+            code: textValue(record.code, `CRS-${index + 1}`),
+            teacherId: apiTeachers[0]?.id ?? '',
+            studentCount: 0,
+          }
+        })
+
+        const apiAnnouncements = listItems(announcementRecords).map((item, index): Announcement => {
+          const record = asRecord(item)
+          return {
+            id: numberValue(record.id, index + 1),
+            title: textValue(record.title, 'Untitled announcement'),
+            date: textValue(record.created_at, textValue(record.date, new Date().toISOString())),
+            source: textValue(record.source, textValue(record.created_by, 'Administration')),
+            recipient: textValue(record.recipient_type, 'Everyone'),
+            content: textValue(record.body, textValue(record.content)),
+            important: Boolean(record.important || record.is_important),
+          }
+        })
+
+        const feeRecord = asRecord(feeReport)
+        setTeachers(apiTeachers)
+        setStudents(apiStudents)
+        setClasses(courseClasses)
+        setAnnouncements(apiAnnouncements)
+        setReportTotals({
+          totalFees: numberValue(feeRecord.total_expected),
+          collectedFees: numberValue(feeRecord.total_collected),
+          pendingFees: numberValue(feeRecord.outstanding),
+        })
+      } catch (error) {
+        if (!cancelled) {
+          setTeachers([])
+          setStudents([])
+          setClasses([])
+          setAnnouncements([])
+          setReportTotals({ totalFees: 0, collectedFees: 0, pendingFees: 0 })
+          setDataError(error instanceof Error ? error.message : 'Could not load dashboard data from the API.')
+        }
+      } finally {
+        if (!cancelled) setLoadingData(false)
+      }
+    }
+
+    loadDashboardData()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   function sectionHref(next: Section) {
     return next === 'dashboard' ? basePath : `${basePath}/${next}`
@@ -491,6 +644,8 @@ export function OperationsDashboard({ role }: { role: Role }) {
 
         <main className="min-h-screen pt-14 lg:pl-60 lg:pt-0">
           <div className="max-w-7xl p-5 lg:p-8">
+            {loadingData && <Notice>Loading live dashboard data from the backend API...</Notice>}
+            {dataError && <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{dataError}</div>}
             {section === 'dashboard' && <DashboardHome role={role} totalStudents={totalStudents} activeTeachers={activeTeachers} avgAttendance={avgAttendance} atRiskCount={atRiskCount} collectedFees={collectedFees} pendingFees={pendingFees} classes={classes} teachers={teachers} announcements={announcements} navigate={navigate} setShowComposer={setShowComposer} />}
             {section === 'attendance' && <AttendancePage classes={classes} />}
             {section === 'academics' && <AcademicsPage classes={classes} students={students} />}
@@ -498,10 +653,15 @@ export function OperationsDashboard({ role }: { role: Role }) {
             {section === 'students' && <StudentsPage role={role} students={students} setStudents={setStudents} classes={classes} search={search} setSearch={setSearch} classFilter={classFilter} setClassFilter={setClassFilter} openCreateUser={openCreateUser} createRole={createRole} setCreateRole={setCreateRole} submitCreateUser={submitCreateUser} formNotice={formNotice} />}
             {(section === 'finance' || section === 'fees') && <FinancePage role={role} students={students} classes={classes} totalFees={totalFees} collectedFees={collectedFees} pendingFees={pendingFees} feeTab={feeTab} setFeeTab={setFeeTab} />}
             {section === 'classes' && <ClassesPage classes={classes} setClasses={setClasses} teachers={teachers} addClass={addClass} />}
+            {section === 'users' && <ApiFeaturePage title="Users & Roles" subtitle="Create accounts, deactivate users, edit profiles, and assign roles." features={['GET /users with role/status/search filters', 'POST /users for teacher, student, and principal accounts', 'PATCH /users/{id} for profile updates', 'DELETE /users/{id} soft-deactivation', 'POST /users/{id}/assign-role for role assignment']} />}
+            {section === 'course-management' && <ApiFeaturePage title="Course Management" subtitle="Manage courses and teacher assignments from the backend course APIs." features={['GET/POST /courses', 'GET/PATCH/DELETE /courses/{id}', 'POST /courses/{id}/assign-teacher', 'Filter courses by type, program, and search text']} />}
+            {section === 'enrollment' && <ApiFeaturePage title="Program & Elective Enrollment" subtitle="Assign student programs and manage elective course enrollment." features={['POST /students/{id}/assign-program', 'POST /students/{id}/enroll-electives', 'GET /students/{id}/courses', 'Validate exactly four electives before submit']} />}
             {section === 'academic' && <AcademicPage />}
             {section === 'announcements' && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} showComposer={showComposer} setShowComposer={setShowComposer} addAnnouncement={addAnnouncement} />}
             {section === 'reports' && <ReportsPage />}
             {section === 'schedule' && <SchedulePage classes={classes} />}
+            {section === 'support' && <ApiFeaturePage title="Support Desk" subtitle="Expose support tickets and IT password reset workflows." features={['GET/POST /support-tickets for user ticket creation', 'PATCH /support-tickets/{id} for IT support status updates', 'POST /support/reset-password for IT support resets']} />}
+            {section === 'evaluations' && <ApiFeaturePage title="Teacher Evaluations" subtitle="Collect student ratings and review aggregate evaluation data." features={['POST /evaluations from enrolled students', 'GET /evaluations for admin/principal aggregate views', 'GET /evaluations for teacher received-evaluation views']} />}
           </div>
         </main>
       </div>
@@ -1051,6 +1211,29 @@ function ReportsPage() {
     ['End-of-Term Report', 'Complete term summary for board review', FileBarChart, 'amber'],
   ] as const
   return <div><PageTitle title="Reports" subtitle="Generate and download school reports" /><div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{reports.map(([title, desc, Icon, tone]) => <Card key={title} className="p-6"><div className={`mb-4 flex h-12 w-12 items-center justify-center rounded-xl ${toneClasses[tone].bg}`}><Icon className={`h-6 w-6 ${toneClasses[tone].text}`} /></div><h3 className="mb-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</h3><p className="mb-4 text-xs text-slate-400">{desc}</p><button className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"><Download className="h-4 w-4" />Generate Report</button></Card>)}</div></div>
+}
+
+function ApiFeaturePage({ title, subtitle, features }: { title: string; subtitle: string; features: string[] }) {
+  return (
+    <div>
+      <PageTitle title={title} subtitle={subtitle} />
+      <div className="grid gap-5 lg:grid-cols-2">
+        {features.map((feature) => (
+          <Card key={feature} className="p-5">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300">
+                <CheckCircle2 className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{feature}</h3>
+                <p className="mt-1 text-xs leading-relaxed text-slate-400">Frontend surface added for this backend capability. Wire this card to the matching service in <span className="font-mono">lib/api/school.ts</span> when the API base URL is available.</p>
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function SchedulePage({ classes }: { classes: ClassItem[] }) {

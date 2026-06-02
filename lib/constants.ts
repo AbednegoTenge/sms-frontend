@@ -51,3 +51,20 @@ export const PORTAL_MAP: Record<string, string> = {
   PRINCIPAL:   '/principal/dashboard',
   IT_SUPPORT:  '/it-support/dashboard',
 }
+
+export const SCHOOL_ID_ROLE_PREFIXES: Record<string, string> = {
+  STD: 'STUDENT',
+  TCH: 'TEACHER',
+  PRI: 'PRINCIPAL',
+  ADM: 'ADMIN',
+  SAD: 'SUPER_ADMIN',
+  ITS: 'IT_SUPPORT',
+}
+
+export function inferRoleFromSchoolId(schoolId: string) {
+  const normalized = schoolId.trim().toUpperCase()
+  const match = Object.entries(SCHOOL_ID_ROLE_PREFIXES).find(([prefix]) =>
+    normalized.startsWith(prefix)
+  )
+  return match?.[1] ?? ''
+}

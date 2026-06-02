@@ -7,7 +7,17 @@ import { login, logout, firstLoginReset } from '@/lib/api/auth'
 import { useAuthStore } from '@/lib/store/authStore'
 import { handleApiError } from '@/lib/utils/errorHandler'
 import { toast } from 'sonner'
-import { PORTAL_MAP } from '@/lib/constants'
+import { inferRoleFromSchoolId, PORTAL_MAP } from '@/lib/constants'
+
+const authCookieOptions = () => ({
+  sameSite: 'strict' as const,
+  path: '/',
+  ...(typeof window !== 'undefined' && window.location.protocol === 'https:'
+    ? { secure: true }
+    : {}),
+})
+
+const normalizeRole = (role: string) => role.trim().toUpperCase()
 
 export function useLogin() {
   const router = useRouter()
@@ -17,19 +27,35 @@ export function useLogin() {
     mutationFn: ({
       school_id,
       password,
-      role,
+      selected_role,
     }: {
       school_id: string
       password: string
-      role: string
-    }) => login(school_id, password, role),
-    onSuccess: (data) => {
-      Cookies.set('access_token', data.access, { secure: true, sameSite: 'strict' })
-      Cookies.set('refresh_token', data.refresh, { secure: true, sameSite: 'strict' })
-      Cookies.set('active_role', data.active_role, { secure: true, sameSite: 'strict' })
+      selected_role: string
+    }) => login(school_id, password, selected_role),
+    onSuccess: (data, variables) => {
+      const user = data.user
+      const roles = (user?.roles ?? data.roles ?? []).map(normalizeRole)
+      const selectedRole = normalizeRole(variables.selected_role)
+      const serverRole = normalizeRole(data.active_role || '')
+      const schoolId = user?.school_id || variables.school_id
+      const inferredRole = inferRoleFromSchoolId(schoolId)
+      const activeRole =
+        (serverRole && roles.includes(serverRole) && serverRole) ||
+        (selectedRole && roles.includes(selectedRole) && selectedRole) ||
+        (inferredRole && roles.includes(inferredRole) && inferredRole) ||
+        roles[0] ||
+        ''
+
+      Cookies.set('access_token', data.access, authCookieOptions())
+      Cookies.set('refresh_token', data.refresh, authCookieOptions())
+      Cookies.set('active_role', activeRole, authCookieOptions())
       setUser({
-        ...data.user,
-        active_role: data.active_role,
+        id: user?.id ?? '',
+        school_id: schoolId,
+        full_name: user?.full_name ?? '',
+        roles,
+        active_role: activeRole,
         must_change_password: data.force_password_reset,
       })
 
@@ -38,7 +64,7 @@ export function useLogin() {
         return
       }
 
-      router.push(PORTAL_MAP[data.active_role] ?? '/')
+      router.push(PORTAL_MAP[activeRole] ?? '/')
     },
     onError: handleApiError,
   })
@@ -51,9 +77,9 @@ export function useLogout() {
   return useMutation({
     mutationFn: () => logout(Cookies.get('refresh_token') ?? ''),
     onSettled: () => {
-      Cookies.remove('access_token')
-      Cookies.remove('refresh_token')
-      Cookies.remove('active_role')
+      Cookies.remove('access_token', { path: '/' })
+      Cookies.remove('refresh_token', { path: '/' })
+      Cookies.remove('active_role', { path: '/' })
       clearUser()
       router.push('/')
     },
@@ -70,12 +96,13 @@ export function useFirstLoginReset() {
     }: {
       new_password: string
       confirm_password: string
-    }) => firstLoginReset(new_password, confirm_password),
+    }) => firstLoginReset(new_password, confirm_password, Cookies.get('refresh_token')),
     onSuccess: (data) => {
-      Cookies.set('access_token', data.access, { secure: true, sameSite: 'strict' })
-      Cookies.set('refresh_token', data.refresh, { secure: true, sameSite: 'strict' })
+      Cookies.set('access_token', data.access, authCookieOptions())
+      Cookies.set('refresh_token', data.refresh, authCookieOptions())
       toast.success('Password updated. Welcome!')
-      router.push('/login')
+      const activeRole = Cookies.get('active_role') ?? ''
+      router.push(PORTAL_MAP[activeRole] ?? '/')
     },
     onError: handleApiError,
   })

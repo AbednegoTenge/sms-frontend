@@ -6,6 +6,7 @@ import {
   GraduationCap,
   Info,
   Shield,
+  BadgeCheck,
   User,
 } from 'lucide-react'
 
@@ -50,6 +51,16 @@ const roles = [
     iconBg: 'bg-purple-50 group-hover:bg-purple-100',
     borderClass: 'hover:border-purple-300 hover:shadow-purple-500/5',
   },
+  {
+    role: 'IT_SUPPORT',
+    label: 'IT Support',
+    description: 'Tickets, resets, account help',
+    icon: BadgeCheck,
+    accent: 'rose',
+    iconClass: 'text-rose-600',
+    iconBg: 'bg-rose-50 group-hover:bg-rose-100',
+    borderClass: 'hover:border-rose-300 hover:shadow-rose-500/5',
+  },
 ]
 
 const signInTextColors: Record<string, string> = {
@@ -57,6 +68,7 @@ const signInTextColors: Record<string, string> = {
   blue: 'text-blue-600',
   amber: 'text-amber-600',
   purple: 'text-purple-600',
+  rose: 'text-rose-600',
 }
 
 export default function LandingPage() {
@@ -110,7 +122,7 @@ export default function LandingPage() {
             </p>
           </div>
 
-          <div className="fade-in-up-d1 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="fade-in-up-d1 grid gap-5 sm:grid-cols-2 lg:grid-cols-5">
             {roles.map(
               ({
                 role,

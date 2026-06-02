@@ -15,8 +15,9 @@ export interface LoginResponse {
   access: string
   refresh: string
   force_password_reset: boolean
-  active_role: string
-  user: Pick<User, 'id' | 'school_id' | 'full_name' | 'roles'>
+  active_role?: string
+  roles?: string[]
+  user?: Pick<User, 'id' | 'school_id' | 'full_name' | 'roles'>
 }
 
 export interface CreateUserInput {

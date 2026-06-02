@@ -3,7 +3,6 @@
 import { Suspense, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import Cookies from 'js-cookie'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -31,7 +30,6 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { useLogin } from '@/lib/hooks/useAuth'
-import { useAuthStore } from '@/lib/store/authStore'
 
 const ROLE_CONFIG = {
   STUDENT: {
@@ -128,59 +126,6 @@ const loginSchema = z.object({
 type LoginInput = z.infer<typeof loginSchema>
 type RoleKey = keyof typeof ROLE_CONFIG
 
-const MOCK_ACCOUNTS: Record<
-  string,
-  { school_id: string; password: string; name: string; portal: string }
-> = {
-  STUDENT: {
-    school_id: 'STD001',
-    password: 'Pass123',
-    name: 'Adnan Khan',
-    portal: '/student/dashboard',
-  },
-  TEACHER: {
-    school_id: 'TCH001',
-    password: 'Pass123',
-    name: 'Dr. Sarah Johnson',
-    portal: '/teacher/dashboard',
-  },
-  PRINCIPAL: {
-    school_id: 'PRI001',
-    password: 'Pass123',
-    name: 'Dr. A. Mensah',
-    portal: '/principal/dashboard',
-  },
-  ADMIN: {
-    school_id: 'ADM001',
-    password: 'Pass123',
-    name: 'System Admin',
-    portal: '/admin/dashboard',
-  },
-}
-
-function base64UrlEncode(value: Record<string, unknown>) {
-  return btoa(JSON.stringify(value))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '')
-}
-
-function createMockToken(role: string, schoolId: string) {
-  const now = Math.floor(Date.now() / 1000)
-  return [
-    base64UrlEncode({ alg: 'none', typ: 'JWT' }),
-    base64UrlEncode({
-      user_id: schoolId.toLowerCase(),
-      school_id: schoolId,
-      active_role: role,
-      must_change_password: false,
-      iat: now,
-      exp: now + 60 * 60 * 8,
-    }),
-    'mock-signature',
-  ].join('.')
-}
-
 export default function LoginPage() {
   return (
     <Suspense fallback={null}>
@@ -195,7 +140,6 @@ function LoginPageContent() {
   const role = searchParams.get('role') ?? ''
   const config = ROLE_CONFIG[role as RoleKey]
   const { mutate: loginMutate, isPending } = useLogin()
-  const setUser = useAuthStore((s) => s.setUser)
   const [showPassword, setShowPassword] = useState(false)
 
   useEffect(() => {
@@ -208,39 +152,7 @@ function LoginPageContent() {
   })
 
   const onSubmit = (values: LoginInput) => {
-    const mockAccount = MOCK_ACCOUNTS[role]
-
-    if (mockAccount) {
-      if (
-        values.school_id === mockAccount.school_id &&
-        values.password === mockAccount.password
-      ) {
-        const token = createMockToken(role, values.school_id)
-        Cookies.set('access_token', token, { sameSite: 'strict', expires: 1 })
-        Cookies.set('refresh_token', `mock-refresh-${role}`, {
-          sameSite: 'strict',
-          expires: 1,
-        })
-        Cookies.set('active_role', role, { sameSite: 'strict', expires: 1 })
-        setUser({
-          id: values.school_id.toLowerCase(),
-          school_id: values.school_id,
-          full_name: mockAccount.name,
-          roles: [role],
-          active_role: role,
-          must_change_password: false,
-        })
-        router.push(mockAccount.portal)
-        return
-      }
-
-      form.setError('password', {
-        message: `Use ${mockAccount.school_id} / ${mockAccount.password}`,
-      })
-      return
-    }
-
-    loginMutate({ ...values, role })
+    loginMutate({ ...values, selected_role: role })
   }
 
   if (!config) return null

@@ -33,7 +33,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/reset-password', request.url))
   }
 
-  const activeRole: string = payload.active_role || ''
+  const activeRole: string = payload.active_role || request.cookies.get('active_role')?.value || ''
 
   for (const [route, allowedRoles] of Object.entries(PORTAL_ROLES)) {
     if (pathname.startsWith(route)) {

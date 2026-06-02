@@ -5,6 +5,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Cookies from 'js-cookie'
+import { academicsApi, assignmentsApi, quizzesApi } from '@/lib/api/school'
 import {
   BarChart3,
   BookOpen,
@@ -38,12 +39,28 @@ type Section =
   | 'quiz-create'
   | 'quiz-subs'
   | 'gradebook'
+  | 'content'
+  | 'evaluations'
+  | 'support'
   | 'schedule'
   | 'announcements'
 type ClassTab = 'students' | 'assignments' | 'quizzes' | 'grades'
 type Submission = { studentId: string; type: 'text' | 'file'; fileName?: string; fileSize?: string; text?: string; date: string; score: number | null }
 type Assignment = { id: number; title: string; classId: number; due: string; maxScore: number; question: string; submissions: Submission[] }
 type Quiz = { id: number; title: string; classId: number; due: string; maxScore: number; instructions: string; questions: { q: string; opts: string[]; correct: number }[]; submissions: { studentId: string; answers: number[]; score: number }[] }
+
+type TeacherClass = { id: number; name: string; code: string; students: { id: string; name: string }[] }
+const listItems = <T,>(value: unknown): T[] => {
+  if (Array.isArray(value)) return value as T[]
+  if (value && typeof value === 'object' && Array.isArray((value as { results?: unknown }).results)) return (value as { results: T[] }).results
+  return []
+}
+const asRecord = (value: unknown): Record<string, unknown> => value && typeof value === 'object' ? value as Record<string, unknown> : {}
+const textValue = (value: unknown, fallback = '') => typeof value === 'string' && value.trim() ? value : fallback
+const numberValue = (value: unknown, fallback = 0) => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
 
 const initialClasses = [
   { id: 1, name: 'Grade 10 - Section A', code: 'MTH 101', students: [{ id: 'S0042', name: 'Alex Thompson' }, { id: 'S0015', name: 'Maria Santos' }, { id: 'S0023', name: 'James Okonkwo' }, { id: 'S0031', name: 'Priya Sharma' }, { id: 'S0018', name: 'Chen Wei' }, { id: 'S0044', name: 'Emily Brown' }] },
@@ -167,6 +184,9 @@ const navItems = [
   { id: 'assignments', label: 'Assignments', icon: ClipboardList },
   { id: 'quizzes', label: 'Quizzes', icon: HelpCircle },
   { id: 'gradebook', label: 'Gradebook', icon: BarChart3 },
+  { id: 'content', label: 'Content', icon: BookOpen },
+  { id: 'evaluations', label: 'Evaluations', icon: Check },
+  { id: 'support', label: 'Support', icon: Download },
   { id: 'schedule', label: 'Schedule', icon: Calendar },
   { id: 'announcements', label: 'Announcements', icon: Megaphone },
 ] as const
@@ -185,9 +205,10 @@ export default function TeacherDashboard() {
   const [section, setSection] = useState<Section>('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [dark, setDark] = useState(false)
-  const [classes] = useState(initialClasses)
-  const [assignments, setAssignments] = useState(initialAssignments)
-  const [quizzes, setQuizzes] = useState(initialQuizzes)
+  const [classes, setClasses] = useState<TeacherClass[]>([])
+  const [assignments, setAssignments] = useState<Assignment[]>([])
+  const [quizzes, setQuizzes] = useState<Quiz[]>([])
+  const [apiNotice, setApiNotice] = useState('Loading live teacher data from the API...')
   const [classId, setClassId] = useState(1)
   const [classTab, setClassTab] = useState<ClassTab>('students')
   const [assignId, setAssignId] = useState(101)
@@ -205,6 +226,93 @@ export default function TeacherDashboard() {
   const classInfo = (id: number) => classes.find((c) => c.id === id)
   const ungradedCount = assignments.reduce((n, a) => n + a.submissions.filter((s) => s.score === null).length, 0)
   const ungradedForClass = (id: number) => assignments.filter((a) => a.classId === id).reduce((n, a) => n + a.submissions.filter((s) => s.score === null).length, 0)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadTeacherData() {
+      setApiNotice('Loading live teacher data from the API...')
+      try {
+        const [courseAssignments, assignmentRecords, quizRecords] = await Promise.all([
+          academicsApi.assignments({ page_size: 100 }),
+          assignmentsApi.list({ page_size: 100 }),
+          quizzesApi.list({ page_size: 100 }),
+        ])
+
+        if (cancelled) return
+
+        const apiClasses = listItems(courseAssignments).map((item, index): TeacherClass => {
+          const record = asRecord(item)
+          const course = asRecord(record.course)
+          const level = asRecord(record.level)
+          return {
+            id: index + 1,
+            name: `${textValue(level.name, textValue(record.level_name, 'Class'))} - ${textValue(course.name, textValue(record.name, `Course ${index + 1}`))}`,
+            code: textValue(course.code, textValue(record.code, `CLS-${index + 1}`)),
+            students: listItems<Record<string, unknown>>(record.students).map((student, studentIndex) => {
+              const studentRecord = asRecord(student)
+              return {
+                id: textValue(studentRecord.school_id, textValue(studentRecord.id, `STD-${studentIndex + 1}`)),
+                name: textValue(studentRecord.full_name, `Student ${studentIndex + 1}`),
+              }
+            }),
+          }
+        })
+
+        const classIdForCourse = (value: unknown) => {
+          const record = asRecord(value)
+          const course = asRecord(record.course)
+          const code = textValue(course.code, textValue(record.course_code))
+          const found = apiClasses.find((item) => item.code === code)
+          return found?.id ?? apiClasses[0]?.id ?? 1
+        }
+
+        const mappedAssignments = listItems(assignmentRecords).map((item, index): Assignment => {
+          const record = asRecord(item)
+          return {
+            id: numberValue(record.numeric_id, index + 1),
+            title: textValue(record.title, `Assignment ${index + 1}`),
+            classId: classIdForCourse(record),
+            due: textValue(record.due_datetime, textValue(record.due, new Date().toISOString())),
+            maxScore: numberValue(record.total_marks, numberValue(record.max_score, 100)),
+            question: textValue(record.instructions, textValue(record.question)),
+            submissions: [],
+          }
+        })
+
+        const mappedQuizzes = listItems(quizRecords).map((item, index): Quiz => {
+          const record = asRecord(item)
+          return {
+            id: numberValue(record.numeric_id, index + 1),
+            title: textValue(record.title, `Quiz ${index + 1}`),
+            classId: classIdForCourse(record),
+            due: textValue(record.due_datetime, new Date().toISOString()),
+            maxScore: numberValue(record.total_marks, 0),
+            instructions: textValue(record.instructions),
+            questions: [],
+            submissions: [],
+          }
+        })
+
+        setClasses(apiClasses)
+        setAssignments(mappedAssignments)
+        setQuizzes(mappedQuizzes)
+        setApiNotice(apiClasses.length || mappedAssignments.length || mappedQuizzes.length ? '' : 'No teacher course assignments, assignments, or quizzes were returned by the API.')
+      } catch (error) {
+        if (!cancelled) {
+          setClasses([])
+          setAssignments([])
+          setQuizzes([])
+          setApiNotice(error instanceof Error ? error.message : 'Could not load teacher data from the API.')
+        }
+      }
+    }
+
+    loadTeacherData()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     const parts = pathname.split('/').filter(Boolean)
@@ -341,6 +449,7 @@ export default function TeacherDashboard() {
 
           <main className="flex-1 overflow-y-auto pt-14 lg:pt-0">
             <div className="max-w-7xl p-5 lg:p-8">
+              {apiNotice && <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">{apiNotice}</div>}
               {section === 'dashboard' && <Dashboard teacher={teacher} classes={classes} assignments={assignments} quizzes={quizzes} ungradedCount={ungradedCount} ungradedForClass={ungradedForClass} openClass={openClass} openAssignment={openAssignment} studentName={studentName} classInfo={classInfo} />}
               {section === 'classes' && <ClassesView classes={classes} assignments={assignments} quizzes={quizzes} ungradedForClass={ungradedForClass} openClass={openClass} />}
               {section === 'class-detail' && <ClassDetail classId={classId} classes={classes} assignments={assignments} quizzes={quizzes} tab={classTab} setTab={setClassTab} openAssignment={openAssignment} openQuiz={openQuiz} createAssignment={(id: number) => { setCreateForClassId(id); go('assign-create') }} createQuiz={(id: number) => { setCreateForClassId(id); setNewQuestions([{ question: '', options: ['', '', '', ''], correctIndex: 0 }]); go('quiz-create') }} />}
@@ -351,6 +460,9 @@ export default function TeacherDashboard() {
               {section === 'quiz-create' && <QuizCreate classes={classes} defaultClassId={createForClassId} questions={newQuestions} setQuestions={setNewQuestions} onSubmit={createQuiz} cancel={() => go('quizzes')} />}
               {section === 'quiz-subs' && <QuizSubmissions quiz={quizzes.find((q) => q.id === quizId)!} classes={classes} studentName={studentName} back={() => go('quizzes')} />}
               {section === 'gradebook' && <Gradebook classes={classes} assignments={assignments} quizzes={quizzes} selectedClassId={gradebookClassId} setSelectedClassId={setGradebookClassId} />}
+              {section === 'content' && <TeacherApiFeaturePage title="Course Content" subtitle="Manage uploaded resources and weekly outlines." features={['GET/POST /assignments/{assignment_id}/resources', 'GET/PUT /assignments/{assignment_id}/outline', 'Multipart upload controls for PDF, documents, and lesson files']} />}
+              {section === 'evaluations' && <TeacherApiFeaturePage title="My Evaluations" subtitle="View evaluation feedback received from students." features={['GET /evaluations scoped to the logged-in teacher', 'Aggregate rating summaries', 'Student comments when returned by the backend']} />}
+              {section === 'support' && <TeacherApiFeaturePage title="Support Tickets" subtitle="Create and track support requests." features={['GET /support-tickets for your tickets', 'POST /support-tickets to request help', 'Show ticket status and assignment']} />}
               {section === 'schedule' && <Schedule classes={classes} />}
               {section === 'announcements' && <Announcements />}
             </div>
@@ -463,6 +575,10 @@ function Schedule({ classes }: any) {
 
 function Announcements() {
   return <div><PageTitle title="Announcements" subtitle={`${announcements.length} posted`} /><div className="space-y-4">{announcements.map((a) => <Card key={a.title} className={`p-6 ${a.important ? 'border-l-4 border-l-amber-400' : ''}`}><div className="mb-2 flex items-center gap-2">{a.important && <Badge tone="amber">Important</Badge>}<h2 className="font-semibold">{a.title}</h2></div><p className="mb-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{a.content}</p><p className="text-xs text-slate-400">{fmtDate(a.date)} - {a.source}</p></Card>)}</div></div>
+}
+
+function TeacherApiFeaturePage({ title, subtitle, features }: { title: string; subtitle: string; features: string[] }) {
+  return <div><PageTitle title={title} subtitle={subtitle} /><div className="grid gap-4 md:grid-cols-2">{features.map((feature) => <Card key={feature} className="p-5"><div className="flex items-start gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300"><Check className="h-4 w-4" /></div><p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">{feature}</p></div></Card>)}</div></div>
 }
 
 function GradesSummary({ c, assessments }: any) {

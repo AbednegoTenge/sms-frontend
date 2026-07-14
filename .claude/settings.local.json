@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xxd)",
+      "Bash(xxd package.json)",
+      "Bash(npx --prefix \"/mnt/c/Users/Abednego Tenge/Projects/sms-frontend\" tsc --noEmit --strict ./anycheck.ts)",
+      "Bash(npx tsc *)",
+      "Bash(git add *)"
+    ]
+  }
+}

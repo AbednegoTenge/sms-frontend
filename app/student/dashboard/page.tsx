@@ -457,7 +457,7 @@ export default function StudentDashboard() {
         setProfile({
           name: textValue(detail.full_name, authUser?.full_name ?? 'Student'),
           id: textValue(detail.school_id, authUser?.school_id ?? '—'),
-          className: detail.level && detail.class_section ? `Level ${detail.level} - ${detail.class_section}` : textValue(detail.program, '—'),
+          className: detail.level && detail.class_section ? `Level ${detail.level} - ${detail.class_section}` : textValue(dashboardRecord.program_name, '—'),
           dob: textValue(detail.date_of_birth, '—'),
           gender: textValue(detail.gender, '—'),
         })

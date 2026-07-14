@@ -6,16 +6,9 @@ import Cookies from 'js-cookie'
 import { login, logout, firstLoginReset } from '@/lib/api/auth'
 import { useAuthStore } from '@/lib/store/authStore'
 import { handleApiError } from '@/lib/utils/errorHandler'
+import { authCookieOptions } from '@/lib/utils/cookies'
 import { toast } from 'sonner'
 import { inferRoleFromSchoolId, PORTAL_MAP } from '@/lib/constants'
-
-const authCookieOptions = () => ({
-  sameSite: 'strict' as const,
-  path: '/',
-  ...(typeof window !== 'undefined' && window.location.protocol === 'https:'
-    ? { secure: true }
-    : {}),
-})
 
 const normalizeRole = (role: string) => role.trim().toUpperCase()
 

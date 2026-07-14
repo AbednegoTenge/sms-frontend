@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react'
 import type React from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Cookies from 'js-cookie'
-import { getUsers } from '@/lib/api/users'
-import { announcementsApi, coursesApi, feesApi, reportsApi, studentsApi } from '@/lib/api/school'
+import { createUser, getUsers } from '@/lib/api/users'
+import { academicsApi, announcementsApi, coursesApi, feesApi, reportsApi, schedulesApi, studentsApi } from '@/lib/api/school'
 import {
   AlertTriangle,
   BarChart3,
@@ -118,6 +118,46 @@ type FeeReceipt = {
   status: 'pending' | 'validated'
 }
 
+type TimetableSlot = {
+  id: string
+  course: string
+  teacher: string
+  level: string
+  classSection: string
+  term: string
+  dayOfWeek: number
+  startTime: string
+  endTime: string
+  room: string
+}
+
+type ExamScheduleItem = {
+  id: string
+  course: string
+  level: string
+  term: string
+  examDate: string
+  startTime: string
+  endTime: string
+  room: string
+  examType: string
+}
+
+type FeeStructureItem = {
+  id: string
+  type: string
+  amount: number
+}
+
+type StudentFeeRecord = {
+  id: string
+  studentId: string
+  studentName: string
+  amount: number
+  amountPaid: number
+  status: string
+}
+
 function listItems<T = Record<string, unknown>>(value: unknown): T[] {
   if (Array.isArray(value)) return value as T[]
   if (value && typeof value === 'object' && Array.isArray((value as { results?: unknown }).results)) {
@@ -139,52 +179,8 @@ function numberValue(value: unknown, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
-const initialTeachers: Teacher[] = [
-  { id: 'TCH-001', name: 'Dr. Sarah Johnson', dept: 'Mathematics', email: 's.johnson@greenfield.edu', status: 'active', joined: '2018-08-15', rating: 4.8 },
-  { id: 'TCH-002', name: 'Ms. Emily Carter', dept: 'English', email: 'e.carter@greenfield.edu', status: 'active', joined: '2019-01-10', rating: 4.5 },
-  { id: 'TCH-003', name: 'Mr. Robert Chen', dept: 'Physics', email: 'r.chen@greenfield.edu', status: 'active', joined: '2020-03-20', rating: 4.7 },
-  { id: 'TCH-004', name: 'Dr. Lisa Park', dept: 'Chemistry', email: 'l.park@greenfield.edu', status: 'active', joined: '2020-08-15', rating: 4.6 },
-  { id: 'TCH-005', name: 'Mr. David Kim', dept: 'Computer Science', email: 'd.kim@greenfield.edu', status: 'active', joined: '2022-01-05', rating: 4.3 },
-  { id: 'TCH-006', name: 'Mrs. Anna Williams', dept: 'History', email: 'a.williams@greenfield.edu', status: 'active', joined: '2017-09-01', rating: 4.9 },
-  { id: 'TCH-007', name: 'Mr. Thomas Brown', dept: 'Biology', email: 't.brown@greenfield.edu', status: 'on-leave', joined: '2021-08-15', rating: 4.2 },
-]
-
-const initialClasses: ClassItem[] = [
-  { id: 1, name: 'Grade 10 - Section A', code: 'G10-A', teacherId: 'TCH-001', studentCount: 32 },
-  { id: 2, name: 'Grade 10 - Section B', code: 'G10-B', teacherId: 'TCH-002', studentCount: 30 },
-  { id: 3, name: 'Grade 11 - Section A', code: 'G11-A', teacherId: 'TCH-003', studentCount: 28 },
-  { id: 4, name: 'Grade 11 - Section B', code: 'G11-B', teacherId: 'TCH-004', studentCount: 29 },
-  { id: 5, name: 'Grade 12 - Section A', code: 'G12-A', teacherId: 'TCH-005', studentCount: 26 },
-  { id: 6, name: 'Grade 12 - Section B', code: 'G12-B', teacherId: 'TCH-006', studentCount: 27 },
-]
-
-const initialStudents: Student[] = [
-  { id: 'STU-001', name: 'Alex Thompson', classId: 1, gender: 'Male', avgGrade: 87, attendance: 94, status: 'active', email: 'a.thompson@greenfield.edu' },
-  { id: 'STU-002', name: 'Maria Santos', classId: 1, gender: 'Female', avgGrade: 92, attendance: 98, status: 'active', email: 'm.santos@greenfield.edu' },
-  { id: 'STU-003', name: 'James Okonkwo', classId: 1, gender: 'Male', avgGrade: 74, attendance: 88, status: 'active', email: 'j.okonkwo@greenfield.edu' },
-  { id: 'STU-004', name: 'Priya Sharma', classId: 1, gender: 'Female', avgGrade: 95, attendance: 99, status: 'active', email: 'p.sharma@greenfield.edu' },
-  { id: 'STU-005', name: 'Chen Wei', classId: 2, gender: 'Male', avgGrade: 81, attendance: 91, status: 'active', email: 'c.wei@greenfield.edu' },
-  { id: 'STU-006', name: 'David Kim', classId: 2, gender: 'Male', avgGrade: 68, attendance: 82, status: 'warning', email: 'd.kim2@greenfield.edu' },
-  { id: 'STU-007', name: 'Aisha Mohammed', classId: 2, gender: 'Female', avgGrade: 90, attendance: 96, status: 'active', email: 'a.mohammed@greenfield.edu' },
-  { id: 'STU-008', name: 'Lucas Fernandez', classId: 3, gender: 'Male', avgGrade: 78, attendance: 89, status: 'active', email: 'l.fernandez@greenfield.edu' },
-  { id: 'STU-009', name: 'Sophie Laurent', classId: 3, gender: 'Female', avgGrade: 93, attendance: 97, status: 'active', email: 's.laurent@greenfield.edu' },
-  { id: 'STU-010', name: 'Olivia Chen', classId: 3, gender: 'Female', avgGrade: 88, attendance: 95, status: 'active', email: 'o.chen@greenfield.edu' },
-  { id: 'STU-011', name: 'Marcus Williams', classId: 4, gender: 'Male', avgGrade: 55, attendance: 72, status: 'at-risk', email: 'm.williams@greenfield.edu' },
-  { id: 'STU-012', name: 'Fatima Al-Hassan', classId: 4, gender: 'Female', avgGrade: 91, attendance: 97, status: 'active', email: 'f.alhassan@greenfield.edu' },
-  { id: 'STU-013', name: 'Yuki Tanaka', classId: 5, gender: 'Female', avgGrade: 96, attendance: 99, status: 'active', email: 'y.tanaka@greenfield.edu' },
-  { id: 'STU-014', name: 'Ethan Brooks', classId: 5, gender: 'Male', avgGrade: 62, attendance: 78, status: 'warning', email: 'e.brooks@greenfield.edu' },
-  { id: 'STU-015', name: 'Emily Brown', classId: 6, gender: 'Female', avgGrade: 85, attendance: 93, status: 'active', email: 'e.brown@greenfield.edu' },
-  { id: 'STU-016', name: 'Ravi Patel', classId: 6, gender: 'Male', avgGrade: 79, attendance: 90, status: 'active', email: 'r.patel@greenfield.edu' },
-]
-
-const initialAnnouncements: Announcement[] = [
-  { id: 1, title: 'Mid-Term Examination Schedule Released', date: '2025-01-20', source: 'Administration', recipient: 'Everyone', content: 'The mid-term examination schedule has been finalized. Examinations begin February 15.', important: true },
-  { id: 2, title: 'Parent-Teacher Meeting - January 28', date: '2025-01-18', source: 'Principal', recipient: 'Parents', content: 'PTM scheduled for January 28, 9:00 AM to 1:00 PM in the main auditorium.', important: true },
-  { id: 3, title: 'Staff Development Workshop', date: '2025-01-15', source: 'HR', recipient: 'Teachers', content: 'Workshop on modern teaching methodologies scheduled for February 5.', important: false },
-  { id: 4, title: 'New Laboratory Equipment Installed', date: '2025-01-12', source: 'Science Dept', recipient: 'Teachers', content: 'Physics and chemistry lab equipment has been installed and is ready for use.', important: false },
-]
-
-const attendance = [
+// No attendance API — mock data retained for attendance UI only
+const MOCK_ATTENDANCE = [
   { classId: 1, present: 30, total: 32, week: [94, 96, 91, 93, 95] },
   { classId: 2, present: 27, total: 30, week: [90, 88, 92, 87, 91] },
   { classId: 3, present: 27, total: 28, week: [96, 97, 95, 98, 97] },
@@ -193,19 +189,13 @@ const attendance = [
   { classId: 6, present: 25, total: 27, week: [93, 91, 94, 92, 93] },
 ]
 
-const gradeDistribution = [
+// No grade-range distribution API — mock retained; summary stats use /reports/academic-performance/
+const MOCK_GRADE_DISTRIBUTION = [
   { range: 'A (90-100)', count: 38, tone: 'emerald' },
   { range: 'B (80-89)', count: 52, tone: 'blue' },
   { range: 'C (70-79)', count: 41, tone: 'amber' },
   { range: 'D (60-69)', count: 18, tone: 'orange' },
   { range: 'F (Below 60)', count: 11, tone: 'red' },
-]
-
-const feeTypes = [
-  { type: 'Tuition', amount: 5000 },
-  { type: 'Lab Fee', amount: 1500 },
-  { type: 'Library', amount: 500 },
-  { type: 'Transport', amount: 1200 },
 ]
 
 const dayChoices = [
@@ -218,22 +208,6 @@ const dayChoices = [
 
 const adminSections: AdminSection[] = ['dashboard', 'users', 'teachers', 'students', 'classes', 'course-management', 'enrollment', 'fees', 'academic', 'announcements', 'schedule', 'support', 'evaluations']
 const principalSections: PrincipalSection[] = ['dashboard', 'attendance', 'academics', 'staff', 'students', 'finance', 'announcements', 'reports', 'evaluations', 'support']
-
-const timetableSlots = [
-  { id: 'slot-001', course: 'Mathematics', teacher: 'Dr. Sarah Johnson', level: 'Grade 10', classSection: 'A', term: 'Second Term', dayOfWeek: 0, startTime: '08:00', endTime: '08:45', room: 'Room 101' },
-  { id: 'slot-002', course: 'English Language', teacher: 'Ms. Emily Carter', level: 'Grade 10', classSection: 'B', term: 'Second Term', dayOfWeek: 0, startTime: '08:50', endTime: '09:35', room: 'Room 102' },
-  { id: 'slot-003', course: 'Physics', teacher: 'Mr. Robert Chen', level: 'Grade 11', classSection: 'A', term: 'Second Term', dayOfWeek: 1, startTime: '09:40', endTime: '10:25', room: 'Lab 1' },
-  { id: 'slot-004', course: 'Chemistry', teacher: 'Dr. Lisa Park', level: 'Grade 11', classSection: 'B', term: 'Second Term', dayOfWeek: 2, startTime: '10:40', endTime: '11:25', room: 'Lab 2' },
-  { id: 'slot-005', course: 'Computer Science', teacher: 'Mr. David Kim', level: 'Grade 12', classSection: 'A', term: 'Second Term', dayOfWeek: 3, startTime: '11:30', endTime: '12:15', room: 'ICT Lab' },
-  { id: 'slot-006', course: 'History', teacher: 'Mrs. Anna Williams', level: 'Grade 12', classSection: 'B', term: 'Second Term', dayOfWeek: 4, startTime: '12:20', endTime: '13:05', room: 'Room 201' },
-]
-
-const examSchedules = [
-  { id: 'exam-001', course: 'Mathematics', level: 'Grade 10', term: 'Second Term', examDate: '2025-02-10', startTime: '09:00', endTime: '10:30', room: 'Main Hall', examType: 'MID_TERM' },
-  { id: 'exam-002', course: 'English Language', level: 'Grade 10', term: 'Second Term', examDate: '2025-02-11', startTime: '09:00', endTime: '10:30', room: 'Main Hall', examType: 'MID_TERM' },
-  { id: 'exam-003', course: 'Physics', level: 'Grade 11', term: 'Second Term', examDate: '2025-03-17', startTime: '11:00', endTime: '13:00', room: 'Lab 1', examType: 'END_OF_TERM' },
-  { id: 'exam-004', course: 'Chemistry', level: 'Grade 11', term: 'Second Term', examDate: '2025-03-18', startTime: '11:00', endTime: '13:00', room: 'Lab 2', examType: 'END_OF_TERM' },
-]
 
 const toneClasses: Record<string, { bg: string; text: string; border: string; fill: string }> = {
   emerald: { bg: 'bg-emerald-50 dark:bg-emerald-950', text: 'text-emerald-700 dark:text-emerald-300', border: 'border-emerald-200 dark:border-emerald-900', fill: 'bg-emerald-500' },
@@ -251,7 +225,7 @@ function pct(a: number, b: number) {
 }
 
 function money(value: number) {
-  return `₦${value.toLocaleString()}`
+  return `${value.toLocaleString()}`
 }
 
 function fmtDate(date: string) {
@@ -309,16 +283,23 @@ export function OperationsDashboard({ role }: { role: Role }) {
   const [loadingData, setLoadingData] = useState(true)
   const [dataError, setDataError] = useState('')
   const [reportTotals, setReportTotals] = useState({ totalFees: 0, collectedFees: 0, pendingFees: 0 })
+  const [timetableSlots, setTimetableSlots] = useState<TimetableSlot[]>([])
+  const [examSchedules, setExamSchedules] = useState<ExamScheduleItem[]>([])
+  const [feeStructures, setFeeStructures] = useState<FeeStructureItem[]>([])
+  const [studentFeeRecords, setStudentFeeRecords] = useState<StudentFeeRecord[]>([])
+  const [academicSummary, setAcademicSummary] = useState({ avgScore: 0, passRate: 0, totalStudents: 0 })
 
   const totalStudents = classes.reduce((sum, item) => sum + item.studentCount, 0)
   const activeTeachers = teachers.filter((item) => item.status === 'active').length
-  const totalPresent = attendance.reduce((sum, item) => sum + item.present, 0)
-  const avgAttendance = pct(totalPresent, attendance.reduce((sum, item) => sum + item.total, 0))
+  const totalPresent = MOCK_ATTENDANCE.reduce((sum, item) => sum + item.present, 0)
+  const avgAttendance = pct(totalPresent, MOCK_ATTENDANCE.reduce((sum, item) => sum + item.total, 0))
   const atRiskCount = students.filter((item) => item.status === 'at-risk').length
-  const fallbackTotalFees = students.length * feeTypes.reduce((sum, item) => sum + item.amount, 0)
+  const feeStructureTotal = feeStructures.reduce((sum, item) => sum + item.amount, 0)
+  const fallbackTotalFees = feeStructureTotal > 0 ? students.length * feeStructureTotal : 0
   const totalFees = reportTotals.totalFees || fallbackTotalFees
   const collectedFees = reportTotals.collectedFees
   const pendingFees = reportTotals.pendingFees || Math.max(totalFees - collectedFees, 0)
+  const feeCollectionProgress = totalFees > 0 ? pct(collectedFees, totalFees) : 0
 
   const isAdmin = role === 'admin'
   const validSections = isAdmin ? adminSections : principalSections
@@ -367,12 +348,17 @@ export function OperationsDashboard({ role }: { role: Role }) {
       setDataError('')
 
       try {
-        const [teacherUsers, studentRecords, courseRecords, announcementRecords, feeReport] = await Promise.all([
+        const [teacherUsers, studentRecords, courseRecords, announcementRecords, feeReport, timetableRecords, examRecords, structureRecords, studentFeesRecords, academicReport] = await Promise.all([
           getUsers({ role: 'TEACHER', page_size: '100' }),
           studentsApi.list({ page_size: 100 }),
           coursesApi.list({ page_size: 100 }),
           announcementsApi.list({ page_size: 20 }),
           reportsApi.feeCollection().catch(() => null),
+          schedulesApi.timetables({ page_size: 100 }).catch(() => null),
+          schedulesApi.examSchedules({ page_size: 100 }).catch(() => null),
+          feesApi.structures({ page_size: 100 }).catch(() => null),
+          feesApi.studentFees({ page_size: 100 }).catch(() => null),
+          reportsApi.academicPerformance().catch(() => null),
         ])
 
         if (cancelled) return
@@ -394,7 +380,7 @@ export function OperationsDashboard({ role }: { role: Role }) {
           const record = asRecord(item)
           const classKey = `${record.level ?? ''}${record.class_section ?? ''}` || String(record.class_section ?? index + 1)
           return {
-            id: textValue(record.school_id, textValue(record.id, `STD-${String(index + 1).padStart(3, '0')}`)),
+            id: textValue(record.data_id, textValue(record.id, `STD-${String(index + 1).padStart(3, '0')}`)),
             name: textValue(record.full_name, 'Unnamed Student'),
             classId: Math.max(1, Math.abs(classKey.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)) % 50),
             gender: record.gender === 'Male' ? 'Male' : 'Female',
@@ -442,6 +428,8 @@ export function OperationsDashboard({ role }: { role: Role }) {
         })
 
         const feeRecord = asRecord(feeReport)
+        const academicRecord = asRecord(academicReport)
+
         setTeachers(apiTeachers)
         setStudents(apiStudents)
         setClasses(courseClasses)
@@ -451,6 +439,67 @@ export function OperationsDashboard({ role }: { role: Role }) {
           collectedFees: numberValue(feeRecord.total_collected),
           pendingFees: numberValue(feeRecord.outstanding),
         })
+        setAcademicSummary({
+          avgScore: numberValue(academicRecord.avg_score),
+          passRate: numberValue(academicRecord.pass_rate) * (numberValue(academicRecord.pass_rate) <= 1 ? 100 : 1),
+          totalStudents: numberValue(academicRecord.total_students),
+        })
+        setTimetableSlots(listItems(timetableRecords).map((item, index): TimetableSlot => {
+          const record = asRecord(item)
+          const course = asRecord(record.course)
+          const teacher = asRecord(record.teacher)
+          const level = asRecord(record.level)
+          const term = asRecord(record.term)
+          return {
+            id: textValue(record.id, `slot-${index + 1}`),
+            course: textValue(course.name, textValue(record.course_name, 'Course')),
+            teacher: textValue(teacher.full_name, textValue(record.teacher_name, 'Teacher')),
+            level: textValue(level.name, textValue(record.level_name, 'Level')),
+            classSection: textValue(record.class_section, '-'),
+            term: textValue(term.name, textValue(record.term_name, 'Term')),
+            dayOfWeek: numberValue(record.day_of_week, numberValue(record.day, 0)),
+            startTime: textValue(record.start_time, '08:00'),
+            endTime: textValue(record.end_time, '09:00'),
+            room: textValue(record.room, '-'),
+          }
+        }))
+        setExamSchedules(listItems(examRecords).map((item, index): ExamScheduleItem => {
+          const record = asRecord(item)
+          const course = asRecord(record.course)
+          const level = asRecord(record.level)
+          const term = asRecord(record.term)
+          return {
+            id: textValue(record.id, `exam-${index + 1}`),
+            course: textValue(course.name, textValue(record.course_name, 'Course')),
+            level: textValue(level.name, textValue(record.level_name, 'Level')),
+            term: textValue(term.name, textValue(record.term_name, 'Term')),
+            examDate: textValue(record.exam_date, textValue(record.date, new Date().toISOString())),
+            startTime: textValue(record.start_time, '09:00'),
+            endTime: textValue(record.end_time, '10:30'),
+            room: textValue(record.room, '-'),
+            examType: textValue(record.exam_type, 'MID_TERM'),
+          }
+        }))
+        setFeeStructures(listItems(structureRecords).map((item, index): FeeStructureItem => {
+          const record = asRecord(item)
+          return {
+            id: textValue(record.id, `fee-${index + 1}`),
+            type: textValue(record.fee_type, textValue(record.name, `Fee ${index + 1}`)),
+            amount: numberValue(record.amount, 0),
+          }
+        }))
+        setStudentFeeRecords(listItems(studentFeesRecords).map((item, index): StudentFeeRecord => {
+          const record = asRecord(item)
+          const student = asRecord(record.student)
+          return {
+            id: textValue(record.id, `sf-${index + 1}`),
+            studentId: textValue(student.school_id, textValue(record.student_id, '')),
+            studentName: textValue(student.full_name, textValue(record.student_name, 'Student')),
+            amount: numberValue(record.amount, numberValue(record.total_amount, 0)),
+            amountPaid: numberValue(record.amount_paid, 0),
+            status: textValue(record.status, 'PENDING'),
+          }
+        }))
       } catch (error) {
         if (!cancelled) {
           setTeachers([])
@@ -458,6 +507,11 @@ export function OperationsDashboard({ role }: { role: Role }) {
           setClasses([])
           setAnnouncements([])
           setReportTotals({ totalFees: 0, collectedFees: 0, pendingFees: 0 })
+          setTimetableSlots([])
+          setExamSchedules([])
+          setFeeStructures([])
+          setStudentFeeRecords([])
+          setAcademicSummary({ avgScore: 0, passRate: 0, totalStudents: 0 })
           setDataError(error instanceof Error ? error.message : 'Could not load dashboard data from the API.')
         }
       } finally {
@@ -491,22 +545,42 @@ export function OperationsDashboard({ role }: { role: Role }) {
     router.push('/')
   }
 
-  function addAnnouncement(event: React.FormEvent<HTMLFormElement>) {
+  async function addAnnouncement(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
-    setAnnouncements((current) => [
-      {
-        id: Math.max(...current.map((item) => item.id), 0) + 1,
+    const recipientMap: Record<string, string> = {
+      Everyone: 'ALL',
+      Students: 'STUDENTS',
+      Teachers: 'TEACHERS',
+      Staff: 'STAFF',
+    }
+    const recipientLabel = String(form.get('recipient') || 'Everyone')
+    try {
+      const created = asRecord(await announcementsApi.create({
         title: String(form.get('title') || ''),
-        content: String(form.get('content') || ''),
-        source: isAdmin ? 'Administration' : 'Principal',
-        recipient: String(form.get('recipient') || 'Everyone'),
-        important: form.get('important') === 'on',
-        date: new Date().toISOString().slice(0, 10),
-      },
-      ...current,
-    ])
-    setShowComposer(false)
+        body: String(form.get('content') || ''),
+        recipient_type: recipientMap[recipientLabel] ?? 'ALL',
+      }))
+      const createdId = textValue(created.id)
+      if (createdId) {
+        await announcementsApi.publish(createdId).catch(() => null)
+      }
+      setAnnouncements((current) => [
+        {
+          id: numberValue(created.id, Math.max(...current.map((item) => item.id), 0) + 1),
+          title: textValue(created.title, String(form.get('title') || '')),
+          content: textValue(created.body, String(form.get('content') || '')),
+          source: isAdmin ? 'Administration' : 'Principal',
+          recipient: recipientLabel,
+          important: form.get('important') === 'on',
+          date: textValue(created.created_at, new Date().toISOString().slice(0, 10)),
+        },
+        ...current,
+      ])
+      setShowComposer(false)
+    } catch (error) {
+      setFormNotice(error instanceof Error ? error.message : 'Could not publish announcement.')
+    }
   }
 
   function openCreateUser(roleToCreate: CreateRole) {
@@ -514,7 +588,7 @@ export function OperationsDashboard({ role }: { role: Role }) {
     setFormNotice('')
   }
 
-  function submitCreateUser(event: React.FormEvent<HTMLFormElement>) {
+  async function submitCreateUser(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!createRole) return
 
@@ -531,47 +605,56 @@ export function OperationsDashboard({ role }: { role: Role }) {
       return
     }
 
-    const fullName = `${firstName} ${lastName}`.trim()
     const selectedRole = String(form.get('role') || createRole)
-    const schoolIdPrefix = createRole === 'TEACHER' ? 'TCH' : 'STU'
-    const nextId = createRole === 'TEACHER' ? teachers.length + 1 : students.length + 1
-    const schoolId = `${schoolIdPrefix}-${String(nextId).padStart(3, '0')}`
 
-    if (createRole === 'TEACHER') {
-      setTeachers((current) => [
-        ...current,
-        {
-          id: schoolId,
-          name: fullName,
-          dept: String(form.get('dept') || 'General Studies'),
-          email,
-          phone,
-          status: 'active',
-          joined: new Date().toISOString().slice(0, 10),
-          rating: 4.0,
-        },
-      ])
-    } else {
-      const classId = Number(form.get('class_id') || 1)
-      setStudents((current) => [
-        ...current,
-        {
-          id: schoolId,
-          name: fullName,
-          classId,
-          gender: String(form.get('gender') || 'Female') as Student['gender'],
-          avgGrade: 0,
-          attendance: 100,
-          status: 'active',
-          email,
-          phone
-        },
-      ])
-      setClasses((current) => current.map((item) => item.id === classId ? { ...item, studentCount: item.studentCount + 1 } : item))
+    try {
+      const created = await createUser({
+        first_name: firstName,
+        last_name: lastName,
+        email: email || undefined,
+        phone: phone || undefined,
+        password,
+        roles: [selectedRole],
+      })
+
+      const fullName = created.full_name || `${firstName} ${lastName}`.trim()
+
+      if (createRole === 'TEACHER') {
+        setTeachers((current) => [
+          ...current,
+          {
+            id: created.school_id,
+            name: fullName,
+            dept: String(form.get('dept') || 'General Studies'),
+            email,
+            status: 'active',
+            joined: new Date().toISOString().slice(0, 10),
+            rating: 0,
+          },
+        ])
+      } else {
+        const classId = Number(form.get('class_id') || 1)
+        setStudents((current) => [
+          ...current,
+          {
+            id: created.school_id,
+            name: fullName,
+            classId,
+            gender: String(form.get('gender') || 'Female') as Student['gender'],
+            avgGrade: 0,
+            attendance: 0,
+            status: 'active',
+            email,
+          },
+        ])
+        setClasses((current) => current.map((item) => item.id === classId ? { ...item, studentCount: item.studentCount + 1 } : item))
+      }
+
+      setFormNotice(`${fullName} created with ${selectedRole} role.`)
+      setCreateRole(null)
+    } catch (error) {
+      setFormNotice(error instanceof Error ? error.message : 'Could not create user.')
     }
-
-    setFormNotice(`${fullName} created with ${selectedRole} role. Backend payload: first_name, last_name, email, phone, password, roles: ["${selectedRole}"].`)
-    setCreateRole(null)
   }
 
   function addClass() {
@@ -646,12 +729,33 @@ export function OperationsDashboard({ role }: { role: Role }) {
           <div className="max-w-7xl p-5 lg:p-8">
             {loadingData && <Notice>Loading live dashboard data from the backend API...</Notice>}
             {dataError && <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{dataError}</div>}
-            {section === 'dashboard' && <DashboardHome role={role} totalStudents={totalStudents} activeTeachers={activeTeachers} avgAttendance={avgAttendance} atRiskCount={atRiskCount} collectedFees={collectedFees} pendingFees={pendingFees} classes={classes} teachers={teachers} announcements={announcements} navigate={navigate} setShowComposer={setShowComposer} />}
+            {section === 'dashboard' && <DashboardHome role={role} totalStudents={totalStudents} activeTeachers={activeTeachers} avgAttendance={avgAttendance} atRiskCount={atRiskCount} collectedFees={collectedFees} pendingFees={pendingFees} feeCollectionProgress={feeCollectionProgress} academicSummary={academicSummary} classes={classes} teachers={teachers} announcements={announcements} navigate={navigate} setShowComposer={setShowComposer} />}
             {section === 'attendance' && <AttendancePage classes={classes} />}
             {section === 'academics' && <AcademicsPage classes={classes} students={students} />}
             {(section === 'staff' || section === 'teachers') && <PeoplePage role={role} kind="teachers" teachers={teachers} setTeachers={setTeachers} openCreateUser={openCreateUser} createRole={createRole} setCreateRole={setCreateRole} submitCreateUser={submitCreateUser} formNotice={formNotice} search={search} setSearch={setSearch} />}
             {section === 'students' && <StudentsPage role={role} students={students} setStudents={setStudents} classes={classes} search={search} setSearch={setSearch} classFilter={classFilter} setClassFilter={setClassFilter} openCreateUser={openCreateUser} createRole={createRole} setCreateRole={setCreateRole} submitCreateUser={submitCreateUser} formNotice={formNotice} />}
-            {(section === 'finance' || section === 'fees') && <FinancePage role={role} students={students} classes={classes} totalFees={totalFees} collectedFees={collectedFees} pendingFees={pendingFees} feeTab={feeTab} setFeeTab={setFeeTab} />}
+            {(section === 'finance' || section === 'fees') && <FinancePage role={role} students={students} classes={classes} totalFees={totalFees} collectedFees={collectedFees} pendingFees={pendingFees} feeTab={feeTab} setFeeTab={setFeeTab} feeStructures={feeStructures} studentFeeRecords={studentFeeRecords} onPaymentRecorded={async () => {
+              const feeReport = await reportsApi.feeCollection().catch(() => null)
+              const studentFeesRecords = await feesApi.studentFees({ page_size: 100 }).catch(() => null)
+              const feeRecord = asRecord(feeReport)
+              setReportTotals({
+                totalFees: numberValue(feeRecord.total_expected),
+                collectedFees: numberValue(feeRecord.total_collected),
+                pendingFees: numberValue(feeRecord.outstanding),
+              })
+              setStudentFeeRecords(listItems(studentFeesRecords).map((item, index): StudentFeeRecord => {
+                const record = asRecord(item)
+                const student = asRecord(record.student)
+                return {
+                  id: textValue(record.id, `sf-${index + 1}`),
+                  studentId: textValue(student.school_id, textValue(record.student_id, '')),
+                  studentName: textValue(student.full_name, textValue(record.student_name, 'Student')),
+                  amount: numberValue(record.amount, numberValue(record.total_amount, 0)),
+                  amountPaid: numberValue(record.amount_paid, 0),
+                  status: textValue(record.status, 'PENDING'),
+                }
+              }))
+            }} />}
             {section === 'classes' && <ClassesPage classes={classes} setClasses={setClasses} teachers={teachers} addClass={addClass} />}
             {section === 'users' && <ApiFeaturePage title="Users & Roles" subtitle="Create accounts, deactivate users, edit profiles, and assign roles." features={['GET /users with role/status/search filters', 'POST /users for teacher, student, and principal accounts', 'PATCH /users/{id} for profile updates', 'DELETE /users/{id} soft-deactivation', 'POST /users/{id}/assign-role for role assignment']} />}
             {section === 'course-management' && <ApiFeaturePage title="Course Management" subtitle="Manage courses and teacher assignments from the backend course APIs." features={['GET/POST /courses', 'GET/PATCH/DELETE /courses/{id}', 'POST /courses/{id}/assign-teacher', 'Filter courses by type, program, and search text']} />}
@@ -659,7 +763,7 @@ export function OperationsDashboard({ role }: { role: Role }) {
             {section === 'academic' && <AcademicPage />}
             {section === 'announcements' && <AnnouncementsPage announcements={announcements} setAnnouncements={setAnnouncements} showComposer={showComposer} setShowComposer={setShowComposer} addAnnouncement={addAnnouncement} />}
             {section === 'reports' && <ReportsPage />}
-            {section === 'schedule' && <SchedulePage classes={classes} />}
+            {section === 'schedule' && <SchedulePage classes={classes} timetableSlots={timetableSlots} examSchedules={examSchedules} />}
             {section === 'support' && <ApiFeaturePage title="Support Desk" subtitle="Expose support tickets and IT password reset workflows." features={['GET/POST /support-tickets for user ticket creation', 'PATCH /support-tickets/{id} for IT support status updates', 'POST /support/reset-password for IT support resets']} />}
             {section === 'evaluations' && <ApiFeaturePage title="Teacher Evaluations" subtitle="Collect student ratings and review aggregate evaluation data." features={['POST /evaluations from enrolled students', 'GET /evaluations for admin/principal aggregate views', 'GET /evaluations for teacher received-evaluation views']} />}
           </div>
@@ -700,6 +804,8 @@ function DashboardHome(props: {
   atRiskCount: number
   collectedFees: number
   pendingFees: number
+  feeCollectionProgress: number
+  academicSummary: { avgScore: number; passRate: number; totalStudents: number }
   classes: ClassItem[]
   teachers: Teacher[]
   announcements: Announcement[]
@@ -728,7 +834,7 @@ function DashboardHome(props: {
         <StatCard icon={Users} tone="blue" value={props.totalStudents} label="Total Students" />
         <StatCard icon={GraduationCap} tone="emerald" value={props.activeTeachers} label={isAdmin ? 'Active Teachers' : 'Active Staff'} />
         <StatCard icon={ClipboardCheck} tone="cyan" value={`${props.avgAttendance}%`} label="Avg Attendance" badge={<Badge tone={props.avgAttendance >= 90 ? 'emerald' : 'amber'}>{props.avgAttendance >= 90 ? 'Good' : 'Low'}</Badge>} />
-        <StatCard icon={Wallet} tone="purple" value={money(props.collectedFees)} label="Fees Collected" badge={<Badge tone="purple">75%</Badge>} />
+        <StatCard icon={Wallet} tone="purple" value={money(props.collectedFees)} label="Fees Collected" badge={<Badge tone="purple">{props.feeCollectionProgress}%</Badge>} />
         <StatCard icon={AlertTriangle} tone="red" value={props.atRiskCount} label={isAdmin ? 'Open Alerts' : 'At-Risk Students'} badge={props.atRiskCount > 0 ? <Badge tone="red">Action</Badge> : undefined} />
       </div>
 
@@ -755,7 +861,7 @@ function DashboardHome(props: {
             <button onClick={() => props.navigate(isAdmin ? 'schedule' : 'attendance')} className="text-xs font-medium text-emerald-600">View all</button>
           </div>
           <div className="space-y-3">
-            {attendance.map((item) => {
+            {MOCK_ATTENDANCE.map((item) => {
               const percent = pct(item.present, item.total)
               return <ProgressRow key={item.classId} label={classCode(props.classes, item.classId)} value={percent} tone={percent >= 95 ? 'emerald' : percent >= 85 ? 'blue' : 'amber'} suffix={`${percent}%`} />
             })}
@@ -767,8 +873,8 @@ function DashboardHome(props: {
             <button onClick={() => props.navigate(isAdmin ? 'academic' : 'academics')} className="text-xs font-medium text-emerald-600">View all</button>
           </div>
           <div className="space-y-3">
-            {gradeDistribution.map((item) => {
-              const total = gradeDistribution.reduce((sum, grade) => sum + grade.count, 0)
+            {MOCK_GRADE_DISTRIBUTION.map((item) => {
+              const total = props.academicSummary.totalStudents || MOCK_GRADE_DISTRIBUTION.reduce((sum, grade) => sum + grade.count, 0)
               return <ProgressRow key={item.range} label={item.range} value={Math.round((item.count / total) * 100)} tone={item.tone} suffix={item.count} />
             })}
           </div>
@@ -780,10 +886,14 @@ function DashboardHome(props: {
           <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100"><Bell className="h-4 w-4 text-amber-500" />Priority Notifications</h2>
           <div className="space-y-3">
             {[
-              ['1 student at critical academic risk', 'red'],
-              [`Fee collection at 75% - ${money(props.pendingFees)} outstanding`, 'cyan'],
-              ['Parent-Teacher Meeting in 3 days', 'purple'],
-            ].map(([text, tone]) => <div key={text} className="flex items-center gap-3 rounded-xl p-3 hover:bg-slate-50 dark:hover:bg-slate-800"><span className={`h-2.5 w-2.5 rounded-full ${toneClasses[tone].fill}`} /><p className="text-sm text-slate-700 dark:text-slate-200">{text}</p></div>)}
+              props.atRiskCount > 0 ? `${props.atRiskCount} student(s) at critical academic risk` : 'No students flagged at critical risk',
+              props.pendingFees > 0 ? `Fee collection at ${props.feeCollectionProgress}% - ${money(props.pendingFees)} outstanding` : 'Fee collection is up to date',
+              props.academicSummary.avgScore > 0 ? `School average score: ${props.academicSummary.avgScore.toFixed(1)}%` : 'Academic performance data loading',
+            ].map((text, index) => {
+              const tones = ['red', 'cyan', 'purple'] as const
+              const tone = tones[index] ?? 'purple'
+              return <div key={text} className="flex items-center gap-3 rounded-xl p-3 hover:bg-slate-50 dark:hover:bg-slate-800"><span className={`h-2.5 w-2.5 rounded-full ${toneClasses[tone].fill}`} /><p className="text-sm text-slate-700 dark:text-slate-200">{text}</p></div>
+            })}
           </div>
         </Card>
         <Card className="p-5">
@@ -823,8 +933,8 @@ function AnnouncementMini({ item }: { item: Announcement }) {
 }
 
 function AttendancePage({ classes }: { classes: ClassItem[] }) {
-  const totalPresent = attendance.reduce((sum, item) => sum + item.present, 0)
-  const total = attendance.reduce((sum, item) => sum + item.total, 0)
+  const totalPresent = MOCK_ATTENDANCE.reduce((sum, item) => sum + item.present, 0)
+  const total = MOCK_ATTENDANCE.reduce((sum, item) => sum + item.total, 0)
   return (
     <div>
       <PageTitle title="Attendance" subtitle="Daily and weekly attendance tracking by class" />
@@ -837,7 +947,7 @@ function AttendancePage({ classes }: { classes: ClassItem[] }) {
       <Card className="mb-6 p-5">
         <h2 className="mb-5 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100"><BarChart3 className="h-4 w-4 text-cyan-500" />Weekly Attendance Trend</h2>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-          {attendance.map((item) => (
+          {MOCK_ATTENDANCE.map((item) => (
             <div key={item.classId} className="text-center">
               <p className="mb-3 text-xs font-medium text-slate-600 dark:text-slate-300">{classCode(classes, item.classId)}</p>
               <div className="flex h-24 items-end justify-center gap-1">
@@ -849,7 +959,7 @@ function AttendancePage({ classes }: { classes: ClassItem[] }) {
         </div>
       </Card>
       <DataTable headers={['Class', 'Present', 'Total', 'Rate']}>
-        {attendance.map((item) => {
+        {MOCK_ATTENDANCE.map((item) => {
           const cls = classes.find((entry) => entry.id === item.classId)
           const rate = pct(item.present, item.total)
           return <tr key={item.classId} className="border-b border-slate-100 dark:border-slate-800"><td className="px-5 py-3"><p className="font-medium text-slate-800 dark:text-slate-100">{cls?.name}</p><p className="text-xs text-slate-400">{cls?.code}</p></td><td className="px-5 py-3 text-center">{item.present}</td><td className="px-5 py-3 text-center text-slate-400">{item.total}</td><td className="px-5 py-3"><ProgressRow label="" value={rate} tone={rate >= 95 ? 'emerald' : rate >= 85 ? 'blue' : 'amber'} suffix={`${rate}%`} /></td></tr>
@@ -1001,78 +1111,105 @@ function Notice({ children }: { children: React.ReactNode }) {
   )
 }
 
-function FinancePage({ role, students, classes, totalFees, collectedFees, pendingFees, feeTab, setFeeTab }: { role: Role; students: Student[]; classes: ClassItem[]; totalFees: number; collectedFees: number; pendingFees: number; feeTab: 'outstanding' | 'paid' | 'history'; setFeeTab: (value: 'outstanding' | 'paid' | 'history') => void }) {
-  const feeTotal = feeTypes.reduce((sum, item) => sum + item.amount, 0)
-  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null)
+function FinancePage({ role, students, classes, totalFees, collectedFees, pendingFees, feeTab, setFeeTab, feeStructures, studentFeeRecords, onPaymentRecorded }: {
+  role: Role
+  students: Student[]
+  classes: ClassItem[]
+  totalFees: number
+  collectedFees: number
+  pendingFees: number
+  feeTab: 'outstanding' | 'paid' | 'history'
+  setFeeTab: (value: 'outstanding' | 'paid' | 'history') => void
+  feeStructures: FeeStructureItem[]
+  studentFeeRecords: StudentFeeRecord[]
+  onPaymentRecorded: () => Promise<void>
+}) {
+  const feeTotal = feeStructures.reduce((sum, item) => sum + item.amount, 0)
+  const [selectedFeeId, setSelectedFeeId] = useState<string | null>(null)
   const [recording, setRecording] = useState(false)
-  const [payments, setPayments] = useState<Record<string, number>>(() => Object.fromEntries(students.map((student, index) => [student.id, index % 3 === 0 ? feeTotal : index % 3 === 1 ? 4200 : 0])))
-  const [validated, setValidated] = useState<Record<string, boolean>>(() => Object.fromEntries(students.filter((_, index) => index % 3 === 0).map((student) => [student.id, true])))
-  const [receipts, setReceipts] = useState<FeeReceipt[]>(() => students.filter((_, index) => index % 3 === 0).map((student, index) => ({ id: `RCP-2025-${String(index + 1).padStart(4, '0')}`, studentId: student.id, feeType: 'Tuition', amount: feeTotal, method: 'Cash', date: `2025-01-${String(5 + index).padStart(2, '0')}`, status: 'validated' as const })))
   const [notice, setNotice] = useState('')
-  const selectedStudent = students.find((student) => student.id === selectedStudentId) ?? null
-  const paidStudents = students.filter((student) => (payments[student.id] ?? 0) >= feeTotal)
-  const owingStudents = students.filter((student) => (payments[student.id] ?? 0) < feeTotal)
-  const collected = students.reduce((sum, student) => sum + (payments[student.id] ?? 0), 0)
-  const progress = pct(collected, students.length * feeTotal)
+  const [submitting, setSubmitting] = useState(false)
 
-  function recordPayment(event: React.FormEvent<HTMLFormElement>) {
+  const payments = Object.fromEntries(
+    studentFeeRecords.map((record) => [record.studentId, record.amountPaid])
+  )
+  const feeTotalsByStudent = Object.fromEntries(
+    studentFeeRecords.map((record) => [record.studentId, record.amount])
+  )
+
+  const getStudentFeeTotal = (studentId: string) => feeTotalsByStudent[studentId] ?? feeTotal
+  const paidStudents = students.filter((student) => (payments[student.id] ?? 0) >= getStudentFeeTotal(student.id) && getStudentFeeTotal(student.id) > 0)
+  const owingStudents = students.filter((student) => getStudentFeeTotal(student.id) > 0 && (payments[student.id] ?? 0) < getStudentFeeTotal(student.id))
+  const collected = studentFeeRecords.reduce((sum, record) => sum + record.amountPaid, 0)
+  const expected = totalFees || studentFeeRecords.reduce((sum, record) => sum + record.amount, 0) || students.length * feeTotal
+  const progress = pct(collected || collectedFees, expected)
+
+  const selectedStudent = students.find((student) => studentFeeRecords.find((record) => record.id === selectedFeeId)?.studentId === student.id) ?? null
+  const selectedFeeRecord = studentFeeRecords.find((record) => record.id === selectedFeeId) ?? null
+
+  async function recordPayment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!selectedStudent) return
+    if (!selectedFeeRecord) return
     const form = new FormData(event.currentTarget)
     const amount = Number(form.get('amount') || 0)
-    const currentPaid = payments[selectedStudent.id] ?? 0
-    const balance = feeTotal - currentPaid
+    const balance = selectedFeeRecord.amount - selectedFeeRecord.amountPaid
     if (!amount || amount <= 0 || amount > balance) {
-      setNotice(`Enter an amount between ₦1 and ${money(balance)}.`)
+      setNotice(`Enter an amount between 1 and ${money(balance)}.`)
       return
     }
-    const nextReceipt = `RCP-2025-${String(receipts.length + 1).padStart(4, '0')}`
-    setPayments((current) => ({ ...current, [selectedStudent.id]: currentPaid + amount }))
-    setValidated((current) => ({ ...current, [selectedStudent.id]: false }))
-    setReceipts((current) => [{ id: nextReceipt, studentId: selectedStudent.id, feeType: String(form.get('fee_type') || 'Tuition'), amount, method: String(form.get('method') || 'Cash'), date: new Date().toISOString().slice(0, 10), status: 'pending' as const }, ...current])
-    setRecording(false)
-    setNotice('')
-  }
-
-  function payAll(studentId: string) {
-    const currentPaid = payments[studentId] ?? 0
-    const balance = feeTotal - currentPaid
-    if (balance <= 0) return
-    const nextReceipt = `RCP-2025-${String(receipts.length + 1).padStart(4, '0')}`
-    setPayments((current) => ({ ...current, [studentId]: feeTotal }))
-    setValidated((current) => ({ ...current, [studentId]: false }))
-    setReceipts((current) => [{ id: nextReceipt, studentId, feeType: 'All Fees', amount: balance, method: 'Cash', date: new Date().toISOString().slice(0, 10), status: 'pending' as const }, ...current])
-  }
-
-  function validate(studentId: string) {
-    setValidated((current) => ({ ...current, [studentId]: true }))
-    setReceipts((current) => current.map((receipt) => receipt.studentId === studentId ? { ...receipt, status: 'validated' as const } : receipt))
+    setSubmitting(true)
+    try {
+      const methodMap: Record<string, string> = {
+        Cash: 'CASH',
+        'Bank Transfer': 'BANK_TRANSFER',
+        Card: 'CARD',
+        'Mobile Money': 'MOBILE_MONEY',
+      }
+      await feesApi.recordPayment(selectedFeeRecord.id, {
+        amount,
+        payment_method: methodMap[String(form.get('method') || 'Cash')] ?? 'CASH',
+        reference: `PAY-${Date.now()}`,
+        paid_at: new Date().toISOString(),
+      })
+      await onPaymentRecorded()
+      setRecording(false)
+      setNotice('')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not record payment.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
     <div>
       <PageTitle title={role === 'admin' ? 'Fee Collection' : 'Finance Overview'} subtitle="Fee collection and financial summary" />
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard icon={Wallet} tone="cyan" value={money(role === 'admin' ? students.length * feeTotal : totalFees)} label="Total Expected" />
-        <StatCard icon={CheckCircle2} tone="emerald" value={money(role === 'admin' ? collected : collectedFees)} label="Collected" badge={<Badge tone="emerald">{progress}%</Badge>} />
-        <StatCard icon={Calendar} tone="amber" value={money(role === 'admin' ? students.length * feeTotal - collected : pendingFees)} label="Outstanding" />
-        <StatCard icon={FileBarChart} tone="blue" value={role === 'admin' ? receipts.length : 87} label="Receipts Issued" />
+        <StatCard icon={Wallet} tone="cyan" value={money(expected)} label="Total Expected" />
+        <StatCard icon={CheckCircle2} tone="emerald" value={money(collected || collectedFees)} label="Collected" badge={<Badge tone="emerald">{progress}%</Badge>} />
+        <StatCard icon={Calendar} tone="amber" value={money(pendingFees || Math.max(expected - (collected || collectedFees), 0))} label="Outstanding" />
+        <StatCard icon={FileBarChart} tone="blue" value={studentFeeRecords.length} label="Fee Records" />
       </div>
       <Card className="mb-6 p-5">
         <div className="mb-2 flex items-center justify-between"><span className="text-sm font-medium text-slate-700 dark:text-slate-200">Collection Progress</span><span className="text-lg font-bold text-emerald-600">{progress}%</span></div>
         <div className="h-3 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${progress}%` }} /></div>
       </Card>
-      {role === 'admin' && <div className="mb-5 flex gap-2 overflow-x-auto">{(['outstanding', 'paid', 'history'] as const).map((tab) => <button key={tab} onClick={() => { setFeeTab(tab); setSelectedStudentId(null); setRecording(false) }} className={`inline-flex items-center gap-2 whitespace-nowrap rounded-lg border px-4 py-2.5 text-sm font-medium capitalize ${feeTab === tab ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950' : 'border-slate-200 bg-white text-slate-500 dark:border-slate-800 dark:bg-slate-900'}`}>{tab}<span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] ${feeTab === tab ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'}`}>{tab === 'outstanding' ? owingStudents.length : tab === 'paid' ? paidStudents.length : receipts.length}</span></button>)}</div>}
-      {role !== 'admin' ? <ClassCollection classes={classes} /> : (
+      {role === 'admin' && <div className="mb-5 flex gap-2 overflow-x-auto">{(['outstanding', 'paid', 'history'] as const).map((tab) => <button key={tab} onClick={() => { setFeeTab(tab); setSelectedFeeId(null); setRecording(false) }} className={`inline-flex items-center gap-2 whitespace-nowrap rounded-lg border px-4 py-2.5 text-sm font-medium capitalize ${feeTab === tab ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950' : 'border-slate-200 bg-white text-slate-500 dark:border-slate-800 dark:bg-slate-900'}`}>{tab}<span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] ${feeTab === tab ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'}`}>{tab === 'outstanding' ? owingStudents.length : tab === 'paid' ? paidStudents.length : studentFeeRecords.length}</span></button>)}</div>}
+      {role !== 'admin' ? <ClassCollection classes={classes} studentFeeRecords={studentFeeRecords} /> : (
         <div className="grid items-start gap-6 lg:grid-cols-[1fr_420px]">
           <div>
             {feeTab === 'history'
-              ? <ReceiptHistory receipts={receipts} students={students} />
-              : <FeeStudentList students={feeTab === 'paid' ? paidStudents : owingStudents} classes={classes} payments={payments} feeTotal={feeTotal} validated={validated} onSelect={(studentId) => { setSelectedStudentId(studentId); setRecording(false); setNotice('') }} selectedStudentId={selectedStudentId} />}
+              ? <StudentFeeHistory records={studentFeeRecords} students={students} />
+              : <FeeStudentList students={feeTab === 'paid' ? paidStudents : owingStudents} classes={classes} payments={payments} feeTotalsByStudent={feeTotalsByStudent} feeTotal={feeTotal} onSelect={(studentId) => {
+                const record = studentFeeRecords.find((item) => item.studentId === studentId)
+                setSelectedFeeId(record?.id ?? null)
+                setRecording(false)
+                setNotice('')
+              }} selectedStudentId={selectedStudent?.id ?? null} />}
           </div>
           <div>
-            {selectedStudent ? (
-              <FeeInvoice student={selectedStudent} classCode={classCode(classes, selectedStudent.classId)} feeTotal={feeTotal} paid={payments[selectedStudent.id] ?? 0} receipts={receipts.filter((receipt) => receipt.studentId === selectedStudent.id)} validated={validated[selectedStudent.id] === true} recording={recording} notice={notice} onRecord={() => setRecording(true)} onCancel={() => setRecording(false)} onSubmit={recordPayment} onPayAll={() => payAll(selectedStudent.id)} onValidate={() => validate(selectedStudent.id)} />
+            {selectedStudent && selectedFeeRecord ? (
+              <FeeInvoice student={selectedStudent} classCode={classCode(classes, selectedStudent.classId)} feeStructures={feeStructures} feeTotal={selectedFeeRecord.amount} paid={selectedFeeRecord.amountPaid} status={selectedFeeRecord.status} recording={recording} notice={notice} submitting={submitting} onRecord={() => setRecording(true)} onCancel={() => setRecording(false)} onSubmit={recordPayment} />
             ) : (
               <Card className="hidden rounded-2xl p-10 text-center lg:block">
                 <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-50 text-slate-200 dark:bg-slate-800"><Wallet className="h-7 w-7" /></div>
@@ -1087,21 +1224,22 @@ function FinancePage({ role, students, classes, totalFees, collectedFees, pendin
   )
 }
 
-function FeeStudentList({ students, classes, payments, feeTotal, validated, selectedStudentId, onSelect }: { students: Student[]; classes: ClassItem[]; payments: Record<string, number>; feeTotal: number; validated: Record<string, boolean>; selectedStudentId: string | null; onSelect: (studentId: string) => void }) {
+function FeeStudentList({ students, classes, payments, feeTotal, feeTotalsByStudent, selectedStudentId, onSelect }: { students: Student[]; classes: ClassItem[]; payments: Record<string, number>; feeTotal: number; feeTotalsByStudent: Record<string, number>; selectedStudentId: string | null; onSelect: (studentId: string) => void }) {
   return (
     <div className="space-y-2">
       {students.length === 0 && <Card className="p-12 text-center text-sm text-slate-400">No students found.</Card>}
       {students.map((student) => {
+        const bill = feeTotalsByStudent[student.id] ?? feeTotal
         const paid = payments[student.id] ?? 0
-        const balance = feeTotal - paid
-        const isPaid = balance <= 0
+        const balance = bill - paid
+        const isPaid = bill > 0 && balance <= 0
         const isSelected = selectedStudentId === student.id
         return (
           <button key={student.id} type="button" onClick={() => onSelect(student.id)} className={`flex w-full items-center gap-4 rounded-xl border bg-white p-4 text-left transition-all dark:bg-slate-900 ${isSelected ? 'border-emerald-200 ring-1 ring-emerald-200 dark:border-emerald-900' : isPaid ? 'border-emerald-100 hover:bg-emerald-50/30 dark:border-emerald-900 dark:hover:bg-emerald-950/30' : 'border-slate-200 hover:border-red-200 hover:bg-red-50/20 dark:border-slate-800 dark:hover:bg-red-950/20'}`}>
             <Avatar label={student.name} tone={isPaid ? 'emerald' : 'blue'} />
             <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2"><p className="text-sm font-medium text-slate-800 dark:text-slate-100">{student.name}</p><Badge tone={isPaid ? 'emerald' : paid > 0 ? 'amber' : 'red'}>{isPaid ? 'Paid' : paid > 0 ? 'Partial' : 'Unpaid'}</Badge>{isPaid && validated[student.id] && <Badge tone="blue">Validated</Badge>}</div>
-              <p className="text-xs text-slate-400">{student.id} - {classCode(classes, student.classId)} - Bill: {money(feeTotal)}</p>
+              <div className="flex flex-wrap items-center gap-2"><p className="text-sm font-medium text-slate-800 dark:text-slate-100">{student.name}</p><Badge tone={isPaid ? 'emerald' : paid > 0 ? 'amber' : 'red'}>{isPaid ? 'Paid' : paid > 0 ? 'Partial' : 'Unpaid'}</Badge></div>
+              <p className="text-xs text-slate-400">{student.id} - {classCode(classes, student.classId)} - Bill: {money(bill)}</p>
             </div>
             <div className="border-l border-slate-100 pl-3 text-right dark:border-slate-800"><p className={`text-[10px] font-medium uppercase ${isPaid ? 'text-emerald-500' : 'text-red-400'}`}>{isPaid ? 'Paid' : 'Owed'}</p><p className={`text-lg font-bold ${isPaid ? 'text-emerald-600' : 'text-red-500'}`}>{money(isPaid ? paid : balance)}</p></div>
           </button>
@@ -1111,22 +1249,22 @@ function FeeStudentList({ students, classes, payments, feeTotal, validated, sele
   )
 }
 
-function ReceiptHistory({ receipts, students }: { receipts: FeeReceipt[]; students: Student[] }) {
+function StudentFeeHistory({ records, students }: { records: StudentFeeRecord[]; students: Student[] }) {
   return (
     <Card className="overflow-hidden rounded-2xl">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead><tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">{['Receipt #', 'Date', 'Student', 'Fee Type', 'Amount', 'Status'].map((header) => <th key={header} className="px-4 py-3 text-left text-xs font-medium uppercase text-slate-500">{header}</th>)}</tr></thead>
-          <tbody>{receipts.map((receipt) => { const student = students.find((item) => item.id === receipt.studentId); return <tr key={receipt.id} className="border-b border-slate-100 dark:border-slate-800"><td className="px-4 py-3 font-mono text-xs text-slate-600 dark:text-slate-300">{receipt.id}</td><td className="px-4 py-3 text-xs text-slate-400">{fmtDate(receipt.date)}</td><td className="px-4 py-3"><p className="text-sm font-medium text-slate-800 dark:text-slate-100">{student?.name ?? 'Unknown'}</p><p className="font-mono text-[11px] text-slate-400">{receipt.studentId}</p></td><td className="px-4 py-3 text-slate-500">{receipt.feeType}</td><td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-100">{money(receipt.amount)}</td><td className="px-4 py-3"><Badge tone={receipt.status === 'validated' ? 'emerald' : 'amber'}>{receipt.status === 'validated' ? 'Validated' : 'Pending'}</Badge></td></tr> })}</tbody>
+          <thead><tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">{['Student', 'Expected', 'Paid', 'Status'].map((header) => <th key={header} className="px-4 py-3 text-left text-xs font-medium uppercase text-slate-500">{header}</th>)}</tr></thead>
+          <tbody>{records.map((record) => { const student = students.find((item) => item.id === record.studentId); return <tr key={record.id} className="border-b border-slate-100 dark:border-slate-800"><td className="px-4 py-3"><p className="text-sm font-medium text-slate-800 dark:text-slate-100">{student?.name ?? record.studentName}</p><p className="font-mono text-[11px] text-slate-400">{record.studentId}</p></td><td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-100">{money(record.amount)}</td><td className="px-4 py-3 font-semibold text-emerald-600">{money(record.amountPaid)}</td><td className="px-4 py-3"><Badge tone={record.status === 'FULLY_PAID' ? 'emerald' : record.status === 'OVERDUE' ? 'red' : 'amber'}>{record.status.replace(/_/g, ' ')}</Badge></td></tr> })}</tbody>
         </table>
       </div>
     </Card>
   )
 }
 
-function FeeInvoice(props: { student: Student; classCode: string; feeTotal: number; paid: number; receipts: FeeReceipt[]; validated: boolean; recording: boolean; notice: string; onRecord: () => void; onCancel: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void; onPayAll: () => void; onValidate: () => void }) {
+function FeeInvoice(props: { student: Student; classCode: string; feeStructures: FeeStructureItem[]; feeTotal: number; paid: number; status: string; recording: boolean; notice: string; submitting: boolean; onRecord: () => void; onCancel: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void }) {
   const balance = props.feeTotal - props.paid
-  const cleared = balance <= 0 && props.validated
+  const cleared = balance <= 0 || props.status === 'FULLY_PAID'
   return (
     <Card className="overflow-hidden rounded-2xl">
       <div className="bg-slate-900 px-5 py-4 text-white dark:bg-slate-100 dark:text-slate-950">
@@ -1135,13 +1273,12 @@ function FeeInvoice(props: { student: Student; classCode: string; feeTotal: numb
       <div className="grid grid-cols-2 gap-3 border-b border-slate-100 px-5 py-4 dark:border-slate-800"><InfoBlock label="Student" value={props.student.name} /><InfoBlock label="ID / Class" value={`${props.student.id} - ${props.classCode}`} /></div>
       <div className="border-b border-slate-100 px-5 py-4 dark:border-slate-800">
         <h4 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Fee Breakdown</h4>
-        <table className="w-full text-sm"><tbody>{feeTypes.map((fee) => { const feePaid = Math.min(Math.max(props.paid - feeTypes.slice(0, feeTypes.indexOf(fee)).reduce((sum, item) => sum + item.amount, 0), 0), fee.amount); return <tr key={fee.type} className="border-t border-slate-50 dark:border-slate-800"><td className="py-2.5 text-slate-700 dark:text-slate-200">{fee.type}</td><td className="py-2.5 text-right text-slate-500">{money(fee.amount)}</td><td className="py-2.5 text-right font-medium text-emerald-600">{feePaid > 0 ? money(feePaid) : '-'}</td><td className="py-2.5 text-right font-semibold text-red-500">{fee.amount - feePaid > 0 ? money(fee.amount - feePaid) : '-'}</td></tr> })}</tbody></table>
+        <table className="w-full text-sm"><tbody>{(props.feeStructures.length ? props.feeStructures : [{ id: 'total', type: 'Total Fees', amount: props.feeTotal }]).map((fee) => <tr key={fee.id} className="border-t border-slate-50 dark:border-slate-800"><td className="py-2.5 text-slate-700 dark:text-slate-200">{fee.type}</td><td className="py-2.5 text-right text-slate-500">{money(fee.amount)}</td></tr>)}</tbody></table>
       </div>
       <div className="flex justify-between bg-slate-50 px-5 py-3 text-sm dark:bg-slate-950"><span className="font-semibold text-slate-700 dark:text-slate-200">Total</span><div className="flex gap-5"><span className="text-slate-500">{money(props.feeTotal)}</span><span className="font-semibold text-emerald-600">{money(props.paid)}</span><span className="font-bold text-red-500">{balance > 0 ? money(balance) : '-'}</span></div></div>
-      <div className="px-5 py-4"><h4 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Payment History ({props.receipts.length})</h4>{props.receipts.length ? <div className="max-h-40 space-y-2 overflow-y-auto">{props.receipts.map((receipt) => <div key={receipt.id} className={`flex items-center justify-between rounded-lg border p-2.5 ${receipt.status === 'validated' ? 'border-emerald-100 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/30' : 'border-amber-100 bg-amber-50/60 dark:border-amber-900 dark:bg-amber-950/30'}`}><div><p className={`font-mono text-xs font-medium ${receipt.status === 'validated' ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>{receipt.id}</p><p className="text-[10px] text-slate-400">{fmtDate(receipt.date)} - {receipt.method} - {receipt.feeType}</p></div><div className="text-right"><p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{money(receipt.amount)}</p><p className={`text-[10px] ${receipt.status === 'validated' ? 'text-emerald-600' : 'text-amber-600'}`}>{receipt.status === 'validated' ? 'Validated' : 'Pending'}</p></div></div>)}</div> : <p className="text-xs italic text-slate-400">No payments recorded yet.</p>}</div>
-      {props.notice && <div className="mx-5 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-medium text-red-600 dark:border-red-900 dark:bg-red-950">{props.notice}</div>}
-      {props.recording && <form onSubmit={props.onSubmit} className="mx-5 my-4 space-y-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950/30"><h4 className="flex items-center gap-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300"><Wallet className="h-4 w-4" />Record Payment</h4><div className="grid grid-cols-2 gap-3"><select name="fee_type" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">{feeTypes.map((fee) => <option key={fee.type}>{fee.type}</option>)}</select><input name="amount" type="number" min={1} max={balance} defaultValue={balance} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900" /><select name="method" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"><option>Cash</option><option>Bank Transfer</option><option>Card</option><option>Mobile Money</option></select></div><div className="flex gap-2"><button className="flex-1 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-500">Confirm Payment</button><button type="button" onClick={props.onCancel} className="rounded-lg px-4 py-2.5 text-sm font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button></div></form>}
-      <div className="space-y-2 border-t border-slate-100 p-5 dark:border-slate-800">{!props.recording && balance > 0 && <button onClick={props.onRecord} className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 text-sm font-medium text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950"><Wallet className="h-4 w-4" />Record Payment</button>}{!props.recording && balance > 0 && <button onClick={props.onPayAll} className="flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-200 py-2.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900 dark:text-emerald-300 dark:hover:bg-emerald-950"><CheckCircle2 className="h-4 w-4" />Pay All ({money(balance)})</button>}{!props.recording && balance <= 0 && !props.validated && <button onClick={props.onValidate} className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 py-3 text-sm font-semibold text-white hover:bg-emerald-500"><ShieldCheck className="h-5 w-5" />Validate & Sign Off</button>}{cleared && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-center text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300"><ShieldCheck className="mx-auto h-6 w-6" /><p className="mt-1 text-sm font-semibold">Fee Cleared & Validated</p><p className="text-[11px]">Signed off by System Admin</p></div>}</div>
+      {props.notice && <div className="mx-5 mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-medium text-red-600 dark:border-red-900 dark:bg-red-950">{props.notice}</div>}
+      {props.recording && <form onSubmit={props.onSubmit} className="mx-5 my-4 space-y-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950/30"><h4 className="flex items-center gap-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300"><Wallet className="h-4 w-4" />Record Payment</h4><div className="grid grid-cols-2 gap-3"><input name="amount" type="number" min={1} max={balance} defaultValue={balance} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900" /><select name="method" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"><option>Cash</option><option>Bank Transfer</option><option>Card</option><option>Mobile Money</option></select></div><div className="flex gap-2"><button disabled={props.submitting} className="flex-1 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-60">{props.submitting ? 'Saving...' : 'Confirm Payment'}</button><button type="button" onClick={props.onCancel} className="rounded-lg px-4 py-2.5 text-sm font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button></div></form>}
+      <div className="space-y-2 border-t border-slate-100 p-5 dark:border-slate-800">{!props.recording && balance > 0 && <button onClick={props.onRecord} className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 text-sm font-medium text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950"><Wallet className="h-4 w-4" />Record Payment</button>}{cleared && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-center text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300"><ShieldCheck className="mx-auto h-6 w-6" /><p className="mt-1 text-sm font-semibold">Fee Cleared</p><p className="text-[11px]">{props.status.replace(/_/g, ' ')}</p></div>}</div>
     </Card>
   )
 }
@@ -1150,8 +1287,13 @@ function InfoBlock({ label, value }: { label: string; value: string }) {
   return <div><p className="text-[10px] uppercase tracking-wider text-slate-400">{label}</p><p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{value}</p></div>
 }
 
-function ClassCollection({ classes }: { classes: ClassItem[] }) {
-  return <Card className="overflow-hidden"><div className="border-b border-slate-100 px-6 py-4 dark:border-slate-800"><h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Collection by Class</h2></div><div className="divide-y divide-slate-100 dark:divide-slate-800">{classes.map((item, index) => { const value = 70 + index * 4; return <div key={item.id} className="flex items-center gap-4 px-6 py-4"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-purple-50 text-purple-600 dark:bg-purple-950"><School className="h-5 w-5" /></div><div className="min-w-0 flex-1"><div className="mb-1 flex items-center justify-between"><p className="text-sm font-medium text-slate-800 dark:text-slate-100">{item.name}</p><span className="text-xs font-semibold text-emerald-600">{value}%</span></div><div className="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"><div className="h-full rounded-full bg-emerald-400" style={{ width: `${value}%` }} /></div></div></div> })}</div></Card>
+function ClassCollection({ classes, studentFeeRecords }: { classes: ClassItem[]; studentFeeRecords: StudentFeeRecord[] }) {
+  const expected = studentFeeRecords.reduce((sum, record) => sum + record.amount, 0)
+  const collected = studentFeeRecords.reduce((sum, record) => sum + record.amountPaid, 0)
+  const value = expected > 0 ? pct(collected, expected) : 0
+  return <Card className="overflow-hidden"><div className="border-b border-slate-100 px-6 py-4 dark:border-slate-800"><h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Collection by Class</h2></div><div className="divide-y divide-slate-100 dark:divide-slate-800">{classes.map((item) => (
+    <div key={item.id} className="flex items-center gap-4 px-6 py-4"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-purple-50 text-purple-600 dark:bg-purple-950"><School className="h-5 w-5" /></div><div className="min-w-0 flex-1"><div className="mb-1 flex items-center justify-between"><p className="text-sm font-medium text-slate-800 dark:text-slate-100">{item.name}</p><span className="text-xs font-semibold text-emerald-600">{value}%</span></div><div className="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"><div className="h-full rounded-full bg-emerald-400" style={{ width: `${value}%` }} /></div></div></div>
+  ))}</div></Card>
 }
 
 function ClassesPage({ classes, setClasses, teachers, addClass }: { classes: ClassItem[]; setClasses: (value: ClassItem[]) => void; teachers: Teacher[]; addClass: () => void }) {
@@ -1169,23 +1311,64 @@ function ClassesPage({ classes, setClasses, teachers, addClass }: { classes: Cla
 }
 
 function AcademicPage() {
-  const terms = [
-    ['First Term', '2024/2025', 'Sep 2, 2024', 'Dec 13, 2024', 'Completed'],
-    ['Second Term', '2024/2025', 'Jan 6, 2025', 'Mar 28, 2025', 'Active'],
-    ['Third Term', '2024/2025', 'Apr 14, 2025', 'Jul 4, 2025', 'Upcoming'],
-  ]
+  const [terms, setTerms] = useState<Array<{ name: string; year: string; start: string; end: string; status: string }>>([])
+  const [holidays, setHolidays] = useState<Array<{ name: string; date: string }>>([])
+  const [loading, setLoading] = useState(true)
+  // No calendar-events API — mock events retained
   const events = ['Term Begins', 'Parent-Teacher Meeting', 'Mid-Term Examinations', 'Final Examinations', 'Report Cards Issued']
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadAcademicData() {
+      setLoading(true)
+      try {
+        const [termRecords, holidayRecords] = await Promise.all([
+          academicsApi.terms({ page_size: 100 }),
+          schedulesApi.holidays({ page_size: 100 }).catch(() => null),
+        ])
+        if (cancelled) return
+        setTerms(listItems(termRecords).map((item) => {
+          const record = asRecord(item)
+          const year = asRecord(record.academic_year)
+          return {
+            name: textValue(record.name, `Term ${textValue(record.term_number, '')}`),
+            year: textValue(year.name, textValue(record.academic_year_name, '-')),
+            start: fmtDate(textValue(record.start_date, new Date().toISOString())),
+            end: fmtDate(textValue(record.end_date, new Date().toISOString())),
+            status: record.is_active === true ? 'Active' : record.is_completed === true ? 'Completed' : 'Upcoming',
+          }
+        }))
+        setHolidays(listItems(holidayRecords).map((item) => {
+          const record = asRecord(item)
+          return {
+            name: textValue(record.name, 'Holiday'),
+            date: fmtDate(textValue(record.date, new Date().toISOString())),
+          }
+        }))
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    loadAcademicData()
+    return () => { cancelled = true }
+  }, [])
+
+  const currentTerm = terms.find((term) => term.status === 'Active') ?? terms[0]
+
   return (
     <div>
       <PageTitle title="Academic" subtitle="Term management, calendar events, and holidays" />
-      <Card className="mb-6 border-emerald-200 bg-emerald-50 p-6 dark:border-emerald-900 dark:bg-emerald-950">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-300">Current Term</p>
-        <h2 className="mt-1 text-xl font-semibold text-emerald-900 dark:text-emerald-100">2024/2025 - Second Term</h2>
-        <div className="mt-4 grid gap-3 sm:grid-cols-3"><InfoTile label="Start" value="Jan 6, 2025" /><InfoTile label="End" value="Mar 28, 2025" /><InfoTile label="Duration" value="81 days" /></div>
-      </Card>
+      {loading && <Notice>Loading academic calendar from the API...</Notice>}
+      {currentTerm && (
+        <Card className="mb-6 border-emerald-200 bg-emerald-50 p-6 dark:border-emerald-900 dark:bg-emerald-950">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-300">Current Term</p>
+          <h2 className="mt-1 text-xl font-semibold text-emerald-900 dark:text-emerald-100">{currentTerm.year} - {currentTerm.name}</h2>
+          <div className="mt-4 grid gap-3 sm:grid-cols-3"><InfoTile label="Start" value={currentTerm.start} /><InfoTile label="End" value={currentTerm.end} /><InfoTile label="Status" value={currentTerm.status} /></div>
+        </Card>
+      )}
       <div className="grid gap-6 lg:grid-cols-2">
-        <DataTable headers={['Term', 'Year', 'Start', 'End', 'Status']}>{terms.map((term) => <tr key={term[0]} className="border-b border-slate-100 dark:border-slate-800">{term.map((value, index) => <td key={value} className="px-5 py-3 text-sm">{index === 4 ? <Badge tone={value === 'Upcoming' ? 'amber' : 'emerald'}>{value}</Badge> : value}</td>)}</tr>)}</DataTable>
-        <Card className="p-5"><h2 className="mb-4 text-sm font-semibold text-slate-900 dark:text-slate-100">Calendar Events</h2><div className="space-y-3">{events.map((event, index) => <div key={event} className="flex items-center gap-3 rounded-xl p-3 hover:bg-slate-50 dark:hover:bg-slate-800"><div className="text-center"><p className="text-lg font-semibold text-slate-800 dark:text-slate-100">{6 + index * 7}</p><p className="text-[10px] uppercase text-slate-400">Jan</p></div><p className="text-sm font-medium text-slate-700 dark:text-slate-200">{event}</p></div>)}</div></Card>
+        <DataTable headers={['Term', 'Year', 'Start', 'End', 'Status']}>{terms.map((term) => <tr key={`${term.year}-${term.name}`} className="border-b border-slate-100 dark:border-slate-800"><td className="px-5 py-3 text-sm">{term.name}</td><td className="px-5 py-3 text-sm">{term.year}</td><td className="px-5 py-3 text-sm">{term.start}</td><td className="px-5 py-3 text-sm">{term.end}</td><td className="px-5 py-3 text-sm"><Badge tone={term.status === 'Upcoming' ? 'amber' : 'emerald'}>{term.status}</Badge></td></tr>)}</DataTable>
+        <Card className="p-5"><h2 className="mb-4 text-sm font-semibold text-slate-900 dark:text-slate-100">Calendar Events</h2><div className="space-y-3">{events.map((event) => <div key={event} className="flex items-center gap-3 rounded-xl p-3 hover:bg-slate-50 dark:hover:bg-slate-800"><Megaphone className="h-4 w-4 text-slate-300" /><p className="text-sm font-medium text-slate-700 dark:text-slate-200">{event}</p></div>)}</div>{holidays.length > 0 && <div className="mt-6 border-t border-slate-100 pt-4 dark:border-slate-800"><h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">Holidays</h3><div className="space-y-2">{holidays.map((holiday) => <div key={`${holiday.name}-${holiday.date}`} className="flex items-center justify-between text-sm"><span>{holiday.name}</span><span className="text-slate-400">{holiday.date}</span></div>)}</div></div>}</Card>
       </div>
     </div>
   )
@@ -1236,7 +1419,7 @@ function ApiFeaturePage({ title, subtitle, features }: { title: string; subtitle
   )
 }
 
-function SchedulePage({ classes }: { classes: ClassItem[] }) {
+function SchedulePage({ classes, timetableSlots, examSchedules }: { classes: ClassItem[]; timetableSlots: TimetableSlot[]; examSchedules: ExamScheduleItem[] }) {
   const sortedSlots = [...timetableSlots].sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.startTime.localeCompare(b.startTime))
   const sortedExams = [...examSchedules].sort((a, b) => a.examDate.localeCompare(b.examDate) || a.startTime.localeCompare(b.startTime))
   const examTypeLabel: Record<string, string> = { MID_TERM: 'Mid Term', END_OF_TERM: 'End of Term' }

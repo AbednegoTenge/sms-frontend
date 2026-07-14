@@ -1,19 +1,12 @@
 import axios from 'axios'
 import Cookies from 'js-cookie'
+import { authCookieOptions } from '@/lib/utils/cookies'
 
 const API_BASE_URL = (() => {
   const rawUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000/api/v1'
   const trimmedUrl = rawUrl.replace(/\/+$/, '')
   return trimmedUrl.endsWith('/api/v1') ? trimmedUrl : `${trimmedUrl}/api/v1`
 })()
-
-const authCookieOptions = () => ({
-  sameSite: 'strict' as const,
-  path: '/',
-  ...(typeof window !== 'undefined' && window.location.protocol === 'https:'
-    ? { secure: true }
-    : {}),
-})
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -35,7 +28,7 @@ apiClient.interceptors.response.use(
   async (error) => {
     const original = error.config
 
-    if (original.url?.includes('/login/')) {
+    if (original.url?.includes('/auth/login/')) {
       return Promise.reject(error)
     }
 

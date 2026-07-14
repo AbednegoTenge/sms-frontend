@@ -5,7 +5,8 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Cookies from 'js-cookie'
-import { academicsApi, assignmentsApi, quizzesApi } from '@/lib/api/school'
+import { academicsApi, announcementsApi, assignmentsApi, quizzesApi, schedulesApi } from '@/lib/api/school'
+import { useAuthStore } from '@/lib/store/authStore'
 import {
   BarChart3,
   BookOpen,
@@ -45,11 +46,16 @@ type Section =
   | 'schedule'
   | 'announcements'
 type ClassTab = 'students' | 'assignments' | 'quizzes' | 'grades'
-type Submission = { studentId: string; type: 'text' | 'file'; fileName?: string; fileSize?: string; text?: string; date: string; score: number | null }
-type Assignment = { id: number; title: string; classId: number; due: string; maxScore: number; question: string; submissions: Submission[] }
-type Quiz = { id: number; title: string; classId: number; due: string; maxScore: number; instructions: string; questions: { q: string; opts: string[]; correct: number }[]; submissions: { studentId: string; answers: number[]; score: number }[] }
+type Submission = { id?: string; studentId: string; type: 'text' | 'file'; fileName?: string; fileSize?: string; text?: string; date: string; score: number | null }
+type Assignment = { id: number; apiId: string; title: string; classId: number; due: string; maxScore: number; question: string; submissions: Submission[] }
+type Quiz = { id: number; apiId: string; title: string; classId: number; due: string; maxScore: number; instructions: string; questions: { q: string; opts: string[]; correct: number }[]; submissions: { studentId: string; answers: number[]; score: number }[] }
 
-type TeacherClass = { id: number; name: string; code: string; students: { id: string; name: string }[] }
+type TeacherClass = { id: number; apiAssignmentId?: string; name: string; code: string; students: { id: string; name: string }[] }
+type AnnouncementItem = { title: string; date: string; source: string; content: string; important: boolean }
+type TimetableEntry = { dayOfWeek: number; startTime: string; endTime: string; courseCode: string; courseName: string }
+
+const dayLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+const periodLabels = ['8:00-8:45', '8:50-9:35', '9:40-10:25', '10:40-11:25', '11:30-12:15', '12:20-1:05', '1:10-1:55', '2:00-2:45']
 const listItems = <T,>(value: unknown): T[] => {
   if (Array.isArray(value)) return value as T[]
   if (value && typeof value === 'object' && Array.isArray((value as { results?: unknown }).results)) return (value as { results: T[] }).results
@@ -60,122 +66,6 @@ const textValue = (value: unknown, fallback = '') => typeof value === 'string' &
 const numberValue = (value: unknown, fallback = 0) => {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
-}
-
-const initialClasses = [
-  { id: 1, name: 'Grade 10 - Section A', code: 'MTH 101', students: [{ id: 'S0042', name: 'Alex Thompson' }, { id: 'S0015', name: 'Maria Santos' }, { id: 'S0023', name: 'James Okonkwo' }, { id: 'S0031', name: 'Priya Sharma' }, { id: 'S0018', name: 'Chen Wei' }, { id: 'S0044', name: 'Emily Brown' }] },
-  { id: 2, name: 'Grade 10 - Section B', code: 'MTH 101', students: [{ id: 'S0050', name: 'David Kim' }, { id: 'S0055', name: 'Aisha Mohammed' }, { id: 'S0060', name: 'Lucas Fernandez' }, { id: 'S0065', name: 'Sophie Laurent' }, { id: 'S0070', name: 'Ravi Patel' }] },
-  { id: 3, name: 'Grade 11 - Section A', code: 'MTH 201', students: [{ id: 'S0080', name: 'Olivia Chen' }, { id: 'S0085', name: 'Marcus Williams' }, { id: 'S0090', name: 'Fatima Al-Hassan' }, { id: 'S0095', name: 'Yuki Tanaka' }, { id: 'S0098', name: 'Ethan Brooks' }] },
-]
-
-const initialAssignments: Assignment[] = [
-  {
-    id: 101,
-    title: 'Algebra Problem Set',
-    classId: 1,
-    due: '2025-01-15',
-    maxScore: 100,
-    question: 'Solve all algebraic expressions showing working steps. Include simplification of expressions, solving for unknowns, and verification of answers.',
-    submissions: [
-      { studentId: 'S0042', type: 'file', fileName: 'algebra_alex.pdf', fileSize: '1.2 MB', date: '2025-01-14', score: 85 },
-      { studentId: 'S0015', type: 'text', text: 'Problem 1: Solve 3x + 7 = 22\n3x = 15\nx = 5\n\nProblem 2: Simplify 2(x + 3) - x\n= 2x + 6 - x\n= x + 6\n\nProblem 3: Factor x^2 - 9\n= (x + 3)(x - 3)', date: '2025-01-14', score: 92 },
-      { studentId: 'S0023', type: 'file', fileName: 'algebra_james.pdf', fileSize: '1.5 MB', date: '2025-01-14', score: 78 },
-      { studentId: 'S0031', type: 'text', text: '3x + 7 = 22\n3x = 15\nx = 5\n\n2(x+3)-x = x+6\n\nx^2-9 = (x+3)(x-3)', date: '2025-01-15', score: 88 },
-      { studentId: 'S0018', type: 'file', fileName: 'algebra_chen.pdf', fileSize: '1.1 MB', date: '2025-01-15', score: null },
-      { studentId: 'S0044', type: 'text', text: 'Problem 1:\n3x + 7 = 22\n3x = 15\nx = 5\n\nProblem 2:\n2(x+3)-x = x+6\n\nProblem 3:\nx^2-9 = (x+3)(x-3)', date: '2025-01-15', score: null },
-    ],
-  },
-  {
-    id: 102,
-    title: 'Linear Equations Worksheet',
-    classId: 1,
-    due: '2025-01-22',
-    maxScore: 50,
-    question: 'Complete all 20 problems on linear equations. Show all steps including substitution, elimination, and graphical methods where applicable.',
-    submissions: [
-      { studentId: 'S0042', type: 'text', text: 'Q1: y = 4\nQ2: x = 4, y = -1\nQ3: slope = 2, y-intercept = 1', date: '2025-01-21', score: 48 },
-      { studentId: 'S0015', type: 'file', fileName: 'linear_maria.pdf', fileSize: '1.0 MB', date: '2025-01-21', score: 45 },
-      { studentId: 'S0031', type: 'file', fileName: 'linear_priya.pdf', fileSize: '750 KB', date: '2025-01-22', score: 50 },
-      { studentId: 'S0044', type: 'text', text: 'Q1: y=4\nQ2: x=4, y=-1\nQ3: slope 2, y-int 1', date: '2025-01-22', score: null },
-    ],
-  },
-  {
-    id: 103,
-    title: 'Quadratic Functions',
-    classId: 2,
-    due: '2025-01-25',
-    maxScore: 100,
-    question: 'Graph quadratic functions, find vertex and roots. Show the axis of symmetry and explain how the coefficients affect the graph shape.',
-    submissions: [
-      { studentId: 'S0050', type: 'file', fileName: 'quad_david.pdf', fileSize: '1.3 MB', date: '2025-01-24', score: null },
-      { studentId: 'S0055', type: 'text', text: 'For f(x) = x^2 - 4x + 3:\nRoots: x = 1, x = 3\nVertex: (2, -1)\nAxis of symmetry: x = 2', date: '2025-01-24', score: null },
-    ],
-  },
-  {
-    id: 104,
-    title: 'Calculus Introduction',
-    classId: 3,
-    due: '2025-02-01',
-    maxScore: 100,
-    question: 'Limits and derivatives practice problems. Evaluate limits and find derivatives using first principles.',
-    submissions: [{ studentId: 'S0080', type: 'text', text: 'Limit of (x^2-4)/(x-2) as x approaches 2 = 4\n\nDerivative of f(x)=3x^2 using first principles = 6x', date: '2025-01-30', score: null }],
-  },
-]
-
-const initialQuizzes: Quiz[] = [
-  {
-    id: 201,
-    title: 'Algebra Quiz 1',
-    classId: 1,
-    due: '2025-01-10',
-    maxScore: 20,
-    instructions: '15 minutes, 4 questions.',
-    questions: [
-      { q: 'What is x in 3x + 7 = 22?', opts: ['3', '5', '7', '15'], correct: 1 },
-      { q: 'Simplify: 2(x + 3) - x', opts: ['x + 3', 'x + 6', '2x + 6', '3x + 6'], correct: 1 },
-      { q: 'Which is a quadratic expression?', opts: ['3x + 1', 'x^2 + 2x + 1', '1/x', 'sqrt(x)'], correct: 1 },
-      { q: 'Factor: x^2 - 9', opts: ['(x-3)^2', '(x+3)(x-3)', '(x-9)(x+1)', '(x^2-3)'], correct: 1 },
-    ],
-    submissions: [
-      { studentId: 'S0042', answers: [1, 1, 1, 1], score: 20 },
-      { studentId: 'S0015', answers: [1, 1, 1, 0], score: 15 },
-      { studentId: 'S0023', answers: [1, 0, 1, 1], score: 15 },
-      { studentId: 'S0031', answers: [1, 1, 1, 1], score: 20 },
-      { studentId: 'S0018', answers: [0, 1, 1, 1], score: 15 },
-      { studentId: 'S0044', answers: [1, 1, 0, 1], score: 15 },
-    ],
-  },
-  {
-    id: 202,
-    title: 'Linear Equations Quiz',
-    classId: 2,
-    due: '2025-01-20',
-    maxScore: 20,
-    instructions: '20 minutes, 4 questions.',
-    questions: [
-      { q: 'A consistent system has how many solutions?', opts: ['0', '1', 'Infinite', '2'], correct: 1 },
-      { q: 'Slope of y = 2x + 1?', opts: ['1', '2', '-1', '-2'], correct: 1 },
-      { q: 'Method that adds equations?', opts: ['Substitution', 'Elimination', 'Graphing', 'Factoring'], correct: 1 },
-      { q: 'If 2x + y = 10, x = 3, find y.', opts: ['3', '4', '5', '6'], correct: 1 },
-    ],
-    submissions: [
-      { studentId: 'S0050', answers: [1, 1, 1, 1], score: 20 },
-      { studentId: 'S0055', answers: [1, 1, 1, 0], score: 15 },
-      { studentId: 'S0060', answers: [1, 0, 1, 1], score: 15 },
-    ],
-  },
-]
-
-const announcements = [
-  { title: 'Mid-Term Examination Schedule Released', date: '2025-01-20', source: 'General', content: 'The mid-term examination schedule for Grade 10 and 11 has been finalized. Examinations begin February 15th.', important: true },
-  { title: 'MTH 101 - Additional Practice Materials', date: '2025-01-18', source: 'MTH 101', content: 'Additional practice sets uploaded for mid-term preparation.', important: false },
-  { title: 'Parent-Teacher Meeting', date: '2025-01-15', source: 'General', content: 'Parent-teacher meeting scheduled for January 28th, 9:00 AM to 1:00 PM.', important: false },
-]
-
-const scheduleData = {
-  periods: ['8:00-8:45', '8:50-9:35', '9:40-10:25', '10:40-11:25', '11:30-12:15', '12:20-1:05', '1:10-1:55', '2:00-2:45'],
-  days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-  data: { Monday: [1, null, 2, null, 3, null, null, null], Tuesday: [2, 1, null, null, null, 3, null, null], Wednesday: [null, 3, 1, null, 2, null, null, null], Thursday: [3, null, null, null, 1, 2, null, null], Friday: [null, 2, 3, null, null, 1, null, null] } as Record<string, (number | null)[]>,
 }
 
 const navItems = [
@@ -202,6 +92,7 @@ function fmtDate(date: string) {
 export default function TeacherDashboard() {
   const router = useRouter()
   const pathname = usePathname()
+  const authUser = useAuthStore((state) => state.user)
   const [section, setSection] = useState<Section>('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [dark, setDark] = useState(false)
@@ -220,8 +111,10 @@ export default function TeacherDashboard() {
   const [gradebookClassId, setGradebookClassId] = useState(1)
   const [createForClassId, setCreateForClassId] = useState<number | null>(null)
   const [newQuestions, setNewQuestions] = useState([{ question: '', options: ['', '', '', ''], correctIndex: 0 }])
+  const [announcements, setAnnouncements] = useState<AnnouncementItem[]>([])
+  const [timetable, setTimetable] = useState<TimetableEntry[]>([])
 
-  const teacher = { name: 'Dr. Sarah Johnson', dept: 'Mathematics' }
+  const teacher = { name: authUser?.full_name ?? 'Teacher', dept: 'Teaching Staff' }
   const studentName = (id: string) => classes.flatMap((c) => c.students).find((s) => s.id === id)?.name ?? id
   const classInfo = (id: number) => classes.find((c) => c.id === id)
   const ungradedCount = assignments.reduce((n, a) => n + a.submissions.filter((s) => s.score === null).length, 0)
@@ -233,10 +126,12 @@ export default function TeacherDashboard() {
     async function loadTeacherData() {
       setApiNotice('Loading live teacher data from the API...')
       try {
-        const [courseAssignments, assignmentRecords, quizRecords] = await Promise.all([
+        const [courseAssignments, assignmentRecords, quizRecords, announcementRecords, timetableRecords] = await Promise.all([
           academicsApi.assignments({ page_size: 100 }),
           assignmentsApi.list({ page_size: 100 }),
           quizzesApi.list({ page_size: 100 }),
+          announcementsApi.list({ page_size: 20 }).catch(() => null),
+          schedulesApi.timetables({ page_size: 100 }).catch(() => null),
         ])
 
         if (cancelled) return
@@ -247,6 +142,7 @@ export default function TeacherDashboard() {
           const level = asRecord(record.level)
           return {
             id: index + 1,
+            apiAssignmentId: textValue(record.id),
             name: `${textValue(level.name, textValue(record.level_name, 'Class'))} - ${textValue(course.name, textValue(record.name, `Course ${index + 1}`))}`,
             code: textValue(course.code, textValue(record.code, `CLS-${index + 1}`)),
             students: listItems<Record<string, unknown>>(record.students).map((student, studentIndex) => {
@@ -271,6 +167,7 @@ export default function TeacherDashboard() {
           const record = asRecord(item)
           return {
             id: numberValue(record.numeric_id, index + 1),
+            apiId: textValue(record.id, String(index + 1)),
             title: textValue(record.title, `Assignment ${index + 1}`),
             classId: classIdForCourse(record),
             due: textValue(record.due_datetime, textValue(record.due, new Date().toISOString())),
@@ -284,6 +181,7 @@ export default function TeacherDashboard() {
           const record = asRecord(item)
           return {
             id: numberValue(record.numeric_id, index + 1),
+            apiId: textValue(record.id, String(index + 1)),
             title: textValue(record.title, `Quiz ${index + 1}`),
             classId: classIdForCourse(record),
             due: textValue(record.due_datetime, new Date().toISOString()),
@@ -297,6 +195,27 @@ export default function TeacherDashboard() {
         setClasses(apiClasses)
         setAssignments(mappedAssignments)
         setQuizzes(mappedQuizzes)
+        setAnnouncements(listItems(announcementRecords).map((item) => {
+          const record = asRecord(item)
+          return {
+            title: textValue(record.title, 'Untitled announcement'),
+            date: textValue(record.created_at, new Date().toISOString()),
+            source: textValue(record.source, textValue(record.recipient_type, 'General')),
+            content: textValue(record.body, textValue(record.content)),
+            important: Boolean(record.important || record.is_important),
+          }
+        }))
+        setTimetable(listItems(timetableRecords).map((item) => {
+          const record = asRecord(item)
+          const course = asRecord(record.course)
+          return {
+            dayOfWeek: numberValue(record.day_of_week, numberValue(record.day, 0)),
+            startTime: textValue(record.start_time, '08:00'),
+            endTime: textValue(record.end_time, '09:00'),
+            courseCode: textValue(course.code, textValue(record.course_code, 'COURSE')),
+            courseName: textValue(course.name, textValue(record.course_name, 'Course')),
+          }
+        }))
         setApiNotice(apiClasses.length || mappedAssignments.length || mappedQuizzes.length ? '' : 'No teacher course assignments, assignments, or quizzes were returned by the API.')
       } catch (error) {
         if (!cancelled) {
@@ -345,15 +264,60 @@ export default function TeacherDashboard() {
     go('class-detail')
   }
 
-  const openAssignment = (id: number) => {
+  const openAssignment = async (id: number) => {
     setAssignId(id)
     setSelectedSubId(null)
     setSubFilter('all')
+    const assignment = assignments.find((item) => item.id === id)
+    if (assignment) {
+      try {
+        const submissions = listItems(await assignmentsApi.submissions(assignment.apiId))
+        setAssignments((items) => items.map((item) => item.id === id ? {
+          ...item,
+          submissions: submissions.map((sub, index): Submission => {
+            const record = asRecord(sub)
+            const student = asRecord(record.student)
+            return {
+              id: textValue(record.id, `sub-${index}`),
+              studentId: textValue(student.school_id, textValue(record.student_id, `STD-${index + 1}`)),
+              type: record.file || record.file_name ? 'file' : 'text',
+              fileName: textValue(record.file_name),
+              fileSize: textValue(record.file_size),
+              text: textValue(record.text_content),
+              date: textValue(record.submitted_at, new Date().toISOString()),
+              score: typeof record.marks_obtained === 'number' ? record.marks_obtained : typeof record.score === 'number' ? record.score : null,
+            }
+          }),
+        } : item))
+      } catch {
+        // keep empty submissions if API unavailable
+      }
+    }
     go('assign-detail')
   }
 
-  const openQuiz = (id: number) => {
+  const openQuiz = async (id: number) => {
     setQuizId(id)
+    const quiz = quizzes.find((item) => item.id === id)
+    if (quiz) {
+      try {
+        const submissions = listItems(await quizzesApi.submissions(quiz.apiId))
+        setQuizzes((items) => items.map((item) => item.id === id ? {
+          ...item,
+          submissions: submissions.map((sub, index) => {
+            const record = asRecord(sub)
+            const student = asRecord(record.student)
+            return {
+              studentId: textValue(student.school_id, textValue(record.student_id, `STD-${index + 1}`)),
+              answers: [],
+              score: numberValue(record.score, 0),
+            }
+          }),
+        } : item))
+      } catch {
+        // keep empty submissions if API unavailable
+      }
+    }
     go('quiz-subs')
   }
 
@@ -364,45 +328,78 @@ export default function TeacherDashboard() {
     router.replace('/')
   }
 
-  const createAssignment = (event: FormEvent<HTMLFormElement>) => {
+  const createAssignment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
-    const nextAssignment: Assignment = {
-      id: Math.max(...assignments.map((a) => a.id)) + 1,
-      title: String(form.get('title') || ''),
-      classId: Number(form.get('classId')),
-      due: String(form.get('due') || ''),
-      maxScore: Number(form.get('maxScore') || 100),
-      question: String(form.get('question') || ''),
-      submissions: [],
+    const classInfoItem = classes.find((item) => item.id === Number(form.get('classId')))
+    try {
+      const created = asRecord(await assignmentsApi.create({
+        title: String(form.get('title') || ''),
+        due_datetime: String(form.get('due') || ''),
+        total_marks: Number(form.get('maxScore') || 100),
+        instructions: String(form.get('question') || ''),
+        assignment_id: classInfoItem?.apiAssignmentId,
+      }))
+      const nextAssignment: Assignment = {
+        id: Math.max(...assignments.map((a) => a.id), 0) + 1,
+        apiId: textValue(created.id, String(Math.max(...assignments.map((a) => a.id), 0) + 1)),
+        title: String(form.get('title') || ''),
+        classId: Number(form.get('classId')),
+        due: String(form.get('due') || ''),
+        maxScore: Number(form.get('maxScore') || 100),
+        question: String(form.get('question') || ''),
+        submissions: [],
+      }
+      setAssignments((items) => [nextAssignment, ...items])
+      go('assignments')
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Could not create assignment.')
     }
-    setAssignments((items) => [nextAssignment, ...items])
-    go('assignments')
   }
 
-  const createQuiz = (event: FormEvent<HTMLFormElement>) => {
+  const createQuiz = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (newQuestions.some((q) => !q.question.trim() || q.options.some((option) => !option.trim()))) {
       alert('Complete every question and option before creating the quiz.')
       return
     }
     const form = new FormData(event.currentTarget)
-    const nextQuiz: Quiz = {
-      id: Math.max(...quizzes.map((q) => q.id)) + 1,
-      title: String(form.get('title') || ''),
-      classId: Number(form.get('classId')),
-      due: String(form.get('due') || ''),
-      maxScore: newQuestions.length * 5,
-      instructions: String(form.get('instructions') || ''),
-      questions: newQuestions.map((q) => ({ q: q.question, opts: q.options, correct: q.correctIndex })),
-      submissions: [],
+    const classInfoItem = classes.find((item) => item.id === Number(form.get('classId')))
+    try {
+      const created = asRecord(await quizzesApi.create({
+        assignment_id: classInfoItem?.apiAssignmentId,
+        title: String(form.get('title') || ''),
+        due_datetime: String(form.get('due') || ''),
+        max_attempts: 2,
+        total_marks: newQuestions.length * 5,
+        questions: newQuestions.map((q, index) => ({
+          question_text: q.question,
+          question_type: 'MULTIPLE_CHOICE',
+          marks: 5,
+          order: index + 1,
+          choices: q.options.map((text, choiceIndex) => ({ text, is_correct: choiceIndex === q.correctIndex })),
+        })),
+      }))
+      const nextQuiz: Quiz = {
+        id: Math.max(...quizzes.map((q) => q.id), 0) + 1,
+        apiId: textValue(created.id, String(Math.max(...quizzes.map((q) => q.id), 0) + 1)),
+        title: String(form.get('title') || ''),
+        classId: Number(form.get('classId')),
+        due: String(form.get('due') || ''),
+        maxScore: newQuestions.length * 5,
+        instructions: String(form.get('instructions') || ''),
+        questions: newQuestions.map((q) => ({ q: q.question, opts: q.options, correct: q.correctIndex })),
+        submissions: [],
+      }
+      setQuizzes((items) => [nextQuiz, ...items])
+      setNewQuestions([{ question: '', options: ['', '', '', ''], correctIndex: 0 }])
+      go('quizzes')
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Could not create quiz.')
     }
-    setQuizzes((items) => [nextQuiz, ...items])
-    setNewQuestions([{ question: '', options: ['', '', '', ''], correctIndex: 0 }])
-    go('quizzes')
   }
 
-  const gradeSubmission = (assignmentId: number, studentId: string, rawScore: string) => {
+  const gradeSubmission = async (assignmentId: number, studentId: string, rawScore: string) => {
     const assignment = assignments.find((a) => a.id === assignmentId)
     if (!assignment) return
     const score = Number(rawScore)
@@ -410,7 +407,17 @@ export default function TeacherDashboard() {
       alert(`Enter a valid score from 0 to ${assignment.maxScore}.`)
       return
     }
-    setAssignments((items) => items.map((a) => a.id === assignmentId ? { ...a, submissions: a.submissions.map((s) => s.studentId === studentId ? { ...s, score } : s) } : a))
+    const submission = assignment.submissions.find((s) => s.studentId === studentId)
+    if (!submission?.id) {
+      alert('Submission record not available for grading.')
+      return
+    }
+    try {
+      await assignmentsApi.grade(submission.id, { marks_obtained: score, feedback: '' })
+      setAssignments((items) => items.map((a) => a.id === assignmentId ? { ...a, submissions: a.submissions.map((s) => s.studentId === studentId ? { ...s, score } : s) } : a))
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Could not save grade.')
+    }
   }
 
   return (
@@ -463,8 +470,8 @@ export default function TeacherDashboard() {
               {section === 'content' && <TeacherApiFeaturePage title="Course Content" subtitle="Manage uploaded resources and weekly outlines." features={['GET/POST /assignments/{assignment_id}/resources', 'GET/PUT /assignments/{assignment_id}/outline', 'Multipart upload controls for PDF, documents, and lesson files']} />}
               {section === 'evaluations' && <TeacherApiFeaturePage title="My Evaluations" subtitle="View evaluation feedback received from students." features={['GET /evaluations scoped to the logged-in teacher', 'Aggregate rating summaries', 'Student comments when returned by the backend']} />}
               {section === 'support' && <TeacherApiFeaturePage title="Support Tickets" subtitle="Create and track support requests." features={['GET /support-tickets for your tickets', 'POST /support-tickets to request help', 'Show ticket status and assignment']} />}
-              {section === 'schedule' && <Schedule classes={classes} />}
-              {section === 'announcements' && <Announcements />}
+              {section === 'schedule' && <Schedule classes={classes} timetable={timetable} />}
+              {section === 'announcements' && <Announcements items={announcements} />}
             </div>
           </main>
         </div>
@@ -492,7 +499,7 @@ function statCard(icon: React.ReactNode, value: React.ReactNode, label: string) 
 
 function Dashboard({ teacher, classes, assignments, quizzes, ungradedCount, ungradedForClass, openClass, openAssignment, studentName, classInfo }: any) {
   const recent = assignments.flatMap((a: Assignment) => a.submissions.map((s) => ({ ...s, assignment: a }))).sort((a: any, b: any) => +new Date(b.date) - +new Date(a.date)).slice(0, 5)
-  return <div><h1 className="mb-1 text-2xl font-semibold">Welcome back, Sarah</h1><p className="mb-8 text-sm text-slate-400">{teacher.dept} - {classes.length} classes</p><div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">{statCard(<Users className="h-5 w-5" />, classes.reduce((n: number, c: any) => n + c.students.length, 0), 'Total Students')}{statCard(<BookOpen className="h-5 w-5" />, classes.length, 'My Classes')}{statCard(<ClipboardList className="h-5 w-5" />, <>{ungradedCount}</>, 'To Grade')}{statCard(<HelpCircle className="h-5 w-5" />, assignments.length + quizzes.length, 'Assessments')}</div><div className="grid gap-6 lg:grid-cols-2"><div><h2 className="mb-4 text-sm font-semibold">My Classes</h2><div className="space-y-3">{classes.map((c: any) => <button key={c.id} onClick={() => openClass(c.id)} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:-translate-y-0.5 hover:shadow-lg dark:border-slate-700 dark:bg-slate-800"><div><p className="text-sm font-medium">{c.code} - {c.name}</p><p className="mt-0.5 text-xs text-slate-400">{c.students.length} students {ungradedForClass(c.id) > 0 && <span className="text-amber-600">- {ungradedForClass(c.id)} to grade</span>}</p></div><ChevronRight className="h-4 w-4 text-slate-300" /></button>)}</div></div><div><h2 className="mb-4 text-sm font-semibold">Recent Submissions</h2><div className="space-y-3">{recent.map((s: any) => <button key={`${s.assignment.id}-${s.studentId}`} onClick={() => openAssignment(s.assignment.id)} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:-translate-y-0.5 hover:shadow-lg dark:border-slate-700 dark:bg-slate-800"><div className="min-w-0"><p className="truncate text-sm font-medium">{studentName(s.studentId)} - {s.assignment.title}</p><p className="mt-0.5 text-xs text-slate-400">{classInfo(s.assignment.classId)?.code} - {s.type === 'text' ? 'Text' : 'File'} - {fmtDate(s.date)}</p></div>{s.score === null ? <Badge tone="amber">Ungraded</Badge> : <Badge tone="emerald">{s.score}/{s.assignment.maxScore}</Badge>}</button>)}</div></div></div></div>
+  return <div><h1 className="mb-1 text-2xl font-semibold">Welcome back, {teacher.name.split(' ')[0]}</h1><p className="mb-8 text-sm text-slate-400">{teacher.dept} - {classes.length} classes</p><div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">{statCard(<Users className="h-5 w-5" />, classes.reduce((n: number, c: any) => n + c.students.length, 0), 'Total Students')}{statCard(<BookOpen className="h-5 w-5" />, classes.length, 'My Classes')}{statCard(<ClipboardList className="h-5 w-5" />, <>{ungradedCount}</>, 'To Grade')}{statCard(<HelpCircle className="h-5 w-5" />, assignments.length + quizzes.length, 'Assessments')}</div><div className="grid gap-6 lg:grid-cols-2"><div><h2 className="mb-4 text-sm font-semibold">My Classes</h2><div className="space-y-3">{classes.map((c: any) => <button key={c.id} onClick={() => openClass(c.id)} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:-translate-y-0.5 hover:shadow-lg dark:border-slate-700 dark:bg-slate-800"><div><p className="text-sm font-medium">{c.code} - {c.name}</p><p className="mt-0.5 text-xs text-slate-400">{c.students.length} students {ungradedForClass(c.id) > 0 && <span className="text-amber-600">- {ungradedForClass(c.id)} to grade</span>}</p></div><ChevronRight className="h-4 w-4 text-slate-300" /></button>)}</div></div><div><h2 className="mb-4 text-sm font-semibold">Recent Submissions</h2><div className="space-y-3">{recent.map((s: any) => <button key={`${s.assignment.id}-${s.studentId}`} onClick={() => openAssignment(s.assignment.id)} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:-translate-y-0.5 hover:shadow-lg dark:border-slate-700 dark:bg-slate-800"><div className="min-w-0"><p className="truncate text-sm font-medium">{studentName(s.studentId)} - {s.assignment.title}</p><p className="mt-0.5 text-xs text-slate-400">{classInfo(s.assignment.classId)?.code} - {s.type === 'text' ? 'Text' : 'File'} - {fmtDate(s.date)}</p></div>{s.score === null ? <Badge tone="amber">Ungraded</Badge> : <Badge tone="emerald">{s.score}/{s.assignment.maxScore}</Badge>}</button>)}</div></div></div></div>
 }
 
 function ClassesView({ classes, assignments, quizzes, ungradedForClass, openClass }: any) {
@@ -568,13 +575,20 @@ function Gradebook({ classes, assignments, quizzes, selectedClassId, setSelected
   return <div><div className="no-print mb-6"><PageTitle title="Gradebook" subtitle="Student grades by class" /></div><div className="no-print mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div className="flex gap-2 overflow-x-auto">{classes.map((cl: any) => <button key={cl.id} onClick={() => setSelectedClassId(cl.id)} className={`whitespace-nowrap rounded-lg px-4 py-2 text-xs font-medium ${cl.id === selectedClassId ? 'bg-emerald-600 text-white' : 'border border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-800'}`}>{cl.code} - {cl.name}</button>)}</div><button onClick={() => window.print()} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white dark:bg-slate-100 dark:text-slate-900"><Printer className="h-4 w-4" />Print Report</button></div><Card className="mx-auto max-w-5xl overflow-hidden shadow-lg"><div className="bg-slate-900 px-8 py-5 text-white"><h1 className="font-semibold tracking-tight">GREENFIELD ACADEMY</h1><p className="text-xs text-slate-400">CLASS GRADE REPORT</p></div><div className="border-b border-slate-200 bg-slate-50 px-8 py-4 dark:border-slate-700 dark:bg-slate-900"><p className="text-sm font-semibold">{c.name} - {c.code}</p><p className="text-xs text-slate-400">Teacher: Dr. Sarah Johnson</p></div><div className="overflow-x-auto p-6"><table className="w-full text-sm"><thead><tr><Th>Student</Th><Th>ID</Th>{assessments.map((a: any) => <Th key={`${a.kind}-${a.id}`}>{a.title}<br /><span className="font-normal text-slate-400">({a.kind}/{a.maxScore})</span></Th>)}<Th>Average</Th></tr></thead><tbody>{c.students.map((s: any) => <tr key={s.id} className="border-t border-slate-200 dark:border-slate-700"><Td strong>{s.name}</Td><Td mono>{s.id}</Td>{assessments.map((a: any) => { const sub = a.submissions.find((x: any) => x.studentId === s.id); return <Td key={`${s.id}-${a.id}`}>{sub ? sub.score ?? 'pending' : '-'}</Td> })}<Td strong>{avg(s.id) === null ? '-' : `${avg(s.id)!.toFixed(1)}%`}</Td></tr>)}</tbody></table></div></Card></div>
 }
 
-function Schedule({ classes }: any) {
-  const today = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][new Date().getDay()]
-  return <div><PageTitle title="Schedule" subtitle="Weekly teaching timetable" /><Card className="overflow-x-auto"><table className="w-full min-w-[700px] text-sm"><thead className="bg-slate-50 dark:bg-slate-900"><tr><Th>Time</Th>{scheduleData.days.map((d) => <Th key={d}>{d}{d === today ? ' *' : ''}</Th>)}</tr></thead><tbody>{scheduleData.periods.map((period, pi) => <tr key={period} className="border-t border-slate-100 dark:border-slate-700"><Td>{period}</Td>{scheduleData.days.map((day) => { if (pi === 3) return <Td key={day}>Break</Td>; if (pi === 6) return <Td key={day}>Lunch</Td>; const id = scheduleData.data[day][pi]; const c = classes.find((item: any) => item.id === id); return <Td key={day}>{c ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300"><p className="text-xs font-semibold">{c.code}</p><p className="truncate text-[10px] text-slate-500">{c.name}</p></div> : ''}</Td> })}</tr>)}</tbody></table></Card></div>
+function Schedule({ classes, timetable }: { classes: TeacherClass[]; timetable: TimetableEntry[] }) {
+  const today = dayLabels[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1] ?? ''
+  const slotFor = (day: string, periodIndex: number) => {
+    const dayIndex = dayLabels.indexOf(day)
+    const period = periodLabels[periodIndex]
+    if (!period) return null
+    const [startTime] = period.split('-')
+    return timetable.find((entry) => entry.dayOfWeek === dayIndex && entry.startTime.startsWith(startTime.slice(0, 2))) ?? null
+  }
+  return <div><PageTitle title="Schedule" subtitle="Weekly teaching timetable" /><Card className="overflow-x-auto"><table className="w-full min-w-[700px] text-sm"><thead className="bg-slate-50 dark:bg-slate-900"><tr><Th>Time</Th>{dayLabels.map((d) => <Th key={d}>{d}{d === today ? ' *' : ''}</Th>)}</tr></thead><tbody>{periodLabels.map((period, pi) => <tr key={period} className="border-t border-slate-100 dark:border-slate-700"><Td>{period}</Td>{dayLabels.map((day) => { if (pi === 3) return <Td key={day}>Break</Td>; if (pi === 6) return <Td key={day}>Lunch</Td>; const slot = slotFor(day, pi); const c = classes.find((item) => item.code === slot?.courseCode); return <Td key={day}>{c || slot ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300"><p className="text-xs font-semibold">{slot?.courseCode ?? c?.code}</p><p className="truncate text-[10px] text-slate-500">{slot?.courseName ?? c?.name}</p></div> : ''}</Td> })}</tr>)}</tbody></table></Card></div>
 }
 
-function Announcements() {
-  return <div><PageTitle title="Announcements" subtitle={`${announcements.length} posted`} /><div className="space-y-4">{announcements.map((a) => <Card key={a.title} className={`p-6 ${a.important ? 'border-l-4 border-l-amber-400' : ''}`}><div className="mb-2 flex items-center gap-2">{a.important && <Badge tone="amber">Important</Badge>}<h2 className="font-semibold">{a.title}</h2></div><p className="mb-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{a.content}</p><p className="text-xs text-slate-400">{fmtDate(a.date)} - {a.source}</p></Card>)}</div></div>
+function Announcements({ items }: { items: AnnouncementItem[] }) {
+  return <div><PageTitle title="Announcements" subtitle={`${items.length} posted`} /><div className="space-y-4">{items.length === 0 && <Card className="p-8 text-center text-sm text-slate-400">No announcements available.</Card>}{items.map((a) => <Card key={`${a.title}-${a.date}`} className={`p-6 ${a.important ? 'border-l-4 border-l-amber-400' : ''}`}><div className="mb-2 flex items-center gap-2">{a.important && <Badge tone="amber">Important</Badge>}<h2 className="font-semibold">{a.title}</h2></div><p className="mb-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{a.content}</p><p className="text-xs text-slate-400">{fmtDate(a.date)} - {a.source}</p></Card>)}</div></div>
 }
 
 function TeacherApiFeaturePage({ title, subtitle, features }: { title: string; subtitle: string; features: string[] }) {

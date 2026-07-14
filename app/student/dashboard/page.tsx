@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Cookies from 'js-cookie'
-import { announcementsApi, assignmentsApi, quizzesApi, studentsApi } from '@/lib/api/school'
+import { announcementsApi, assignmentsApi, evaluationsApi, quizzesApi, schedulesApi, studentsApi, supportApi } from '@/lib/api/school'
 import { useAuthStore } from '@/lib/store/authStore'
+import { decodeJWT } from '@/lib/utils/jwt'
 import {
   AlertCircle,
   Archive,
@@ -61,6 +62,7 @@ type QuizStatus = 'graded' | 'open' | 'submitted'
 
 type Course = {
   id: number
+  apiId: string
   name: string
   code: string
   lecturer: string
@@ -76,6 +78,7 @@ type Course = {
 
 type Assignment = {
   id: number
+  apiId: string
   title: string
   due: string
   status: AssignmentStatus
@@ -90,6 +93,7 @@ type Assignment = {
 
 type Quiz = {
   id: number
+  apiId: string
   title: string
   due: string
   status: QuizStatus
@@ -101,243 +105,54 @@ type Quiz = {
   questions: { q: string; opts: string[]; correct: number }[]
 }
 
-const student = {
-  name: 'Alex Thompson',
-  id: 'STU-2024-0042',
-  className: 'Grade 10 - Section A',
-  dob: '15-MAR-2010',
-  gender: 'Male',
+type AnnouncementItem = {
+  id: number
+  title: string
+  date: string
+  source: string
+  content: string
+  important: boolean
 }
 
-const initialCourses: Course[] = [
-  {
-    id: 1,
-    name: 'Mathematics',
-    code: 'MTH 101',
-    lecturer: 'Dr. Sarah Johnson',
-    color: 'emerald',
-    progress: 68,
-    credits: 4,
-    outline: [
-      { week: 1, topic: 'Introduction to Algebra', status: 'done' },
-      { week: 2, topic: 'Linear Equations', status: 'done' },
-      { week: 3, topic: 'Quadratic Functions', status: 'done' },
-      { week: 4, topic: 'Polynomials', status: 'current' },
-      { week: 5, topic: 'Coordinate Geometry', status: 'upcoming' },
-      { week: 6, topic: 'Trigonometry Basics', status: 'upcoming' },
-    ],
-    resources: [
-      { name: 'Algebra Fundamentals.pdf', type: 'pdf', size: '2.4 MB' },
-      { name: 'Practice Problems Set 1.docx', type: 'doc', size: '840 KB' },
-      { name: 'Linear Equations Slides.pptx', type: 'ppt', size: '5.1 MB' },
-    ],
-    assignments: [
-      { id: 101, title: 'Algebra Problem Set', due: '2025-01-15', status: 'graded', score: 85, max: 100, attempts: 1, maxAttempts: 1, question: 'Solve the following algebraic expressions and show all working steps.', submittedFile: { name: 'Algebra_Problem_Set.pdf', size: '1.2 MB' }, submittedDate: '2025-01-14' },
-      { id: 102, title: 'Linear Equations Worksheet', due: '2025-01-22', status: 'submitted', score: null, max: 50, attempts: 1, maxAttempts: 3, question: 'Complete all 20 problems on linear equations.', submittedFile: { name: 'Linear_Equations_Worksheet.docx', size: '890 KB' }, submittedDate: '2025-01-21' },
-      { id: 103, title: 'Quadratic Functions Assignment', due: '2025-02-05', status: 'open', score: null, max: 100, attempts: 0, maxAttempts: 1, question: 'Identify and graph quadratic functions.' },
-    ],
-    quizzes: [
-      {
-        id: 201,
-        title: 'Algebra Quiz 1',
-        due: '2025-01-10',
-        status: 'graded',
-        score: 18,
-        max: 20,
-        attempts: 1,
-        maxAttempts: 1,
-        instructions: 'This quiz covers basic algebra concepts. 15 minutes.',
-        questions: [
-          { q: 'What is x in 3x + 7 = 22?', opts: ['3', '5', '7', '15'], correct: 1 },
-          { q: 'Simplify: 2(x + 3) - x', opts: ['x + 3', 'x + 6', '2x + 6', '3x + 6'], correct: 1 },
-          { q: 'Which is a quadratic expression?', opts: ['3x + 1', 'x^2 + 2x + 1', '1/x', 'sqrt(x)'], correct: 1 },
-          { q: 'Factor: x^2 - 9', opts: ['(x-3)^2', '(x+3)(x-3)', '(x-9)(x+1)', '(x^2-3)'], correct: 1 },
-        ],
-      },
-      {
-        id: 202,
-        title: 'Linear Equations Quiz',
-        due: '2025-02-01',
-        status: 'open',
-        score: null,
-        max: 20,
-        attempts: 0,
-        maxAttempts: 2,
-        instructions: 'Linear equations and systems. 20 minutes, 4 questions.',
-        questions: [
-          { q: 'Consistent system has how many solutions?', opts: ['0', '1', 'Infinite', '2'], correct: 1 },
-          { q: 'Slope of y = 2x + 1?', opts: ['1', '2', '-1', '-2'], correct: 1 },
-          { q: 'Method that adds equations?', opts: ['Substitution', 'Elimination', 'Graphing', 'Factoring'], correct: 1 },
-          { q: 'If 2x + y = 10, x = 3, find y.', opts: ['3', '4', '5', '6'], correct: 1 },
-        ],
-      },
-    ],
-    grades: { midterm: 82, quizzes: 90, assignments: 85, overall: 85.7, grade: 'A', gpa: 3.5 },
-  },
-  {
-    id: 2,
-    name: 'English Language',
-    code: 'ENG 101',
-    lecturer: 'Ms. Emily Carter',
-    color: 'blue',
-    progress: 72,
-    credits: 3,
-    outline: [
-      { week: 1, topic: 'Essay Writing Fundamentals', status: 'done' },
-      { week: 2, topic: 'Narrative Techniques', status: 'done' },
-      { week: 3, topic: 'Poetry Analysis', status: 'done' },
-      { week: 4, topic: 'Persuasive Writing', status: 'current' },
-      { week: 5, topic: 'Shakespeare Studies', status: 'upcoming' },
-    ],
-    resources: [
-      { name: 'Essay Writing Guide.pdf', type: 'pdf', size: '1.8 MB' },
-      { name: 'Poetry Collection.docx', type: 'doc', size: '520 KB' },
-    ],
-    assignments: [
-      { id: 104, title: 'Personal Narrative Essay', due: '2025-01-12', status: 'graded', score: 92, max: 100, attempts: 1, maxAttempts: 1, question: 'Write an 800-word personal narrative essay.', submittedFile: { name: 'Personal_Narrative.pdf', size: '456 KB' }, submittedDate: '2025-01-11' },
-      { id: 105, title: 'Poetry Analysis Report', due: '2025-01-28', status: 'open', score: null, max: 100, attempts: 0, maxAttempts: 1, question: 'Analyze two poems from the provided collection.' },
-    ],
-    quizzes: [
-      { id: 203, title: 'Grammar Fundamentals Quiz', due: '2025-01-08', status: 'graded', score: 15, max: 20, attempts: 1, maxAttempts: 2, instructions: 'Grammar fundamentals. 10 minutes.', questions: [{ q: 'Which is a conjunction?', opts: ['Quickly', 'But', 'Beautiful', 'Running'], correct: 1 }, { q: '"She writes beautifully." - Adverb?', opts: ['She', 'writes', 'beautifully', 'None'], correct: 2 }, { q: 'Past tense of "run"?', opts: ['Runned', 'Ran', 'Runned', 'Running'], correct: 1 }, { q: 'A group of sheep?', opts: ['Pack', 'Flock', 'Herd', 'Swarm'], correct: 1 }] },
-    ],
-    grades: { midterm: 88, quizzes: 75, assignments: 92, overall: 88.3, grade: 'A', gpa: 3.7 },
-  },
-  {
-    id: 3,
-    name: 'Physics',
-    code: 'PHY 101',
-    lecturer: 'Mr. Robert Chen',
-    color: 'amber',
-    progress: 55,
-    credits: 4,
-    outline: [
-      { week: 1, topic: 'Measurements & Units', status: 'done' },
-      { week: 2, topic: 'Kinematics', status: 'done' },
-      { week: 3, topic: "Newton's Laws", status: 'current' },
-      { week: 4, topic: 'Work, Energy & Power', status: 'upcoming' },
-      { week: 5, topic: 'Waves & Sound', status: 'upcoming' },
-    ],
-    resources: [
-      { name: 'Kinematics Notes.pdf', type: 'pdf', size: '3.2 MB' },
-      { name: "Newton's Laws.docx", type: 'doc', size: '680 KB' },
-    ],
-    assignments: [
-      { id: 106, title: 'Unit Conversion Worksheet', due: '2025-01-10', status: 'graded', score: 78, max: 100, attempts: 1, maxAttempts: 1, question: 'Convert between SI and non-SI units.', submittedFile: { name: 'Unit_Conversion.pdf', size: '780 KB' }, submittedDate: '2025-01-09' },
-      { id: 107, title: 'Kinematics Problems', due: '2025-01-20', status: 'graded', score: 90, max: 100, attempts: 1, maxAttempts: 1, question: 'Solve 15 kinematics problems.', submittedFile: { name: 'Kinematics_Solutions.pdf', size: '1.4 MB' }, submittedDate: '2025-01-19' },
-      { id: 108, title: 'Forces & Motion Lab Report', due: '2025-02-08', status: 'open', score: null, max: 100, attempts: 0, maxAttempts: 1, question: 'Write a lab report for the forces experiment.' },
-    ],
-    quizzes: [
-      { id: 204, title: 'Measurements Quiz', due: '2025-01-06', status: 'graded', score: 19, max: 20, attempts: 1, maxAttempts: 1, instructions: 'SI units. 5 minutes.', questions: [{ q: 'SI unit of force?', opts: ['Joule', 'Watt', 'Newton', 'Pascal'], correct: 2 }, { q: '1 km = ? m', opts: ['100', '1000', '10000', '100000'], correct: 1 }] },
-    ],
-    grades: { midterm: 75, quizzes: 95, assignments: 84, overall: 81.3, grade: 'B+', gpa: 3.3 },
-  },
-  {
-    id: 4,
-    name: 'Chemistry',
-    code: 'CHM 101',
-    lecturer: 'Dr. Lisa Park',
-    color: 'purple',
-    progress: 60,
-    credits: 4,
-    outline: [
-      { week: 1, topic: 'Atomic Structure', status: 'done' },
-      { week: 2, topic: 'Periodic Table', status: 'done' },
-      { week: 3, topic: 'Chemical Bonding', status: 'current' },
-      { week: 4, topic: 'Stoichiometry', status: 'upcoming' },
-      { week: 5, topic: 'States of Matter', status: 'upcoming' },
-    ],
-    resources: [
-      { name: 'Periodic Table.pdf', type: 'pdf', size: '1.1 MB' },
-      { name: 'Bonding Diagrams.pptx', type: 'ppt', size: '4.5 MB' },
-    ],
-    assignments: [
-      { id: 109, title: 'Atomic Model Worksheet', due: '2025-01-14', status: 'graded', score: 88, max: 100, attempts: 1, maxAttempts: 1, question: 'Draw Bohr models for the first 20 elements.', submittedFile: { name: 'Atomic_Models.pdf', size: '2.1 MB' }, submittedDate: '2025-01-13' },
-      { id: 110, title: 'Chemical Bonding Assignment', due: '2025-02-03', status: 'open', score: null, max: 100, attempts: 0, maxAttempts: 1, question: 'Explain bonding types with Lewis dot structures.' },
-    ],
-    quizzes: [
-      { id: 205, title: 'Atomic Structure Quiz', due: '2025-01-09', status: 'graded', score: 17, max: 20, attempts: 1, maxAttempts: 1, instructions: 'Atomic structure. 5 minutes.', questions: [{ q: 'Atomic number represents?', opts: ['Neutrons', 'Protons', 'Electrons', 'Mass'], correct: 1 }, { q: 'Most abundant gas?', opts: ['Oxygen', 'Nitrogen', 'CO2', 'Argon'], correct: 1 }] },
-    ],
-    grades: { midterm: 80, quizzes: 85, assignments: 88, overall: 84.3, grade: 'A', gpa: 3.5 },
-  },
-  {
-    id: 5,
-    name: 'Computer Science',
-    code: 'CSC 101',
-    lecturer: 'Mr. David Kim',
-    color: 'cyan',
-    progress: 75,
-    credits: 3,
-    outline: [
-      { week: 1, topic: 'Intro to Programming', status: 'done' },
-      { week: 2, topic: 'Variables & Data Types', status: 'done' },
-      { week: 3, topic: 'Control Structures', status: 'done' },
-      { week: 4, topic: 'Functions', status: 'current' },
-      { week: 5, topic: 'Arrays & Lists', status: 'upcoming' },
-    ],
-    resources: [
-      { name: 'Python Basics.pdf', type: 'pdf', size: '2.8 MB' },
-      { name: 'Code Examples.zip', type: 'zip', size: '1.2 MB' },
-    ],
-    assignments: [
-      { id: 111, title: 'Hello World Exercises', due: '2025-01-08', status: 'graded', score: 95, max: 100, attempts: 1, maxAttempts: 1, question: 'Complete 10 basic Python exercises.', submittedFile: { name: 'Hello_World.zip', size: '34 KB' }, submittedDate: '2025-01-07' },
-      { id: 112, title: 'Loops & Conditions Project', due: '2025-01-25', status: 'submitted', score: null, max: 100, attempts: 1, maxAttempts: 2, question: 'Build a number guessing game.', submittedFile: { name: 'Guessing_Game.py', size: '4 KB' }, submittedDate: '2025-01-24' },
-      { id: 113, title: 'Functions Practice Set', due: '2025-02-10', status: 'open', score: null, max: 100, attempts: 0, maxAttempts: 1, question: 'Write 8 functions.' },
-    ],
-    quizzes: [
-      { id: 206, title: 'Python Basics Quiz', due: '2025-01-07', status: 'graded', score: 20, max: 20, attempts: 1, maxAttempts: 1, instructions: 'Python basics. 5 minutes.', questions: [{ q: 'Keyword to define a function?', opts: ['func', 'function', 'def', 'define'], correct: 2 }, { q: 'Python is?', opts: ['Compiled', 'Interpreted', 'Assembly', 'Machine'], correct: 1 }] },
-    ],
-    grades: { midterm: 92, quizzes: 100, assignments: 95, overall: 94.3, grade: 'A+', gpa: 4.0 },
-  },
-  {
-    id: 6,
-    name: 'History',
-    code: 'HIS 101',
-    lecturer: 'Mrs. Anna Williams',
-    color: 'rose',
-    progress: 45,
-    credits: 3,
-    outline: [
-      { week: 1, topic: 'The French Revolution', status: 'done' },
-      { week: 2, topic: 'Industrial Revolution', status: 'done' },
-      { week: 3, topic: 'World War I', status: 'current' },
-      { week: 4, topic: 'World War II', status: 'upcoming' },
-      { week: 5, topic: 'Cold War Era', status: 'upcoming' },
-    ],
-    resources: [
-      { name: 'French Revolution Timeline.pdf', type: 'pdf', size: '1.5 MB' },
-      { name: 'WWI Map Activity.docx', type: 'doc', size: '920 KB' },
-    ],
-    assignments: [
-      { id: 114, title: 'French Revolution Essay', due: '2025-01-18', status: 'graded', score: 80, max: 100, attempts: 1, maxAttempts: 1, question: 'Write a 1000-word essay on the French Revolution.', submittedFile: { name: 'French_Revolution_Essay.pdf', size: '320 KB' }, submittedDate: '2025-01-17' },
-      { id: 115, title: 'Industrial Revolution Report', due: '2025-01-30', status: 'closed', score: null, max: 100, attempts: 0, maxAttempts: 1, question: 'Create a report on the Industrial Revolution.' },
-    ],
-    quizzes: [
-      { id: 207, title: 'French Revolution Quiz', due: '2025-01-13', status: 'graded', score: 16, max: 20, attempts: 1, maxAttempts: 1, instructions: 'French Revolution. 5 minutes.', questions: [{ q: 'Bastille stormed in?', opts: ['1776', '1789', '1799', '1804'], correct: 1 }, { q: 'King during Revolution?', opts: ['Louis XIV', 'Louis XV', 'Louis XVI', 'Napoleon'], correct: 2 }] },
-    ],
-    grades: { midterm: 70, quizzes: 80, assignments: 80, overall: 76.7, grade: 'B+', gpa: 3.2 },
-  },
-]
-
-const announcements = [
-  { id: 1, title: 'Mid-Term Examination Schedule Released', date: '2025-01-20', source: 'General', content: 'The mid-term examination schedule for Grade 10 has been finalized. Examinations begin February 15th.', important: true },
-  { id: 2, title: 'Annual Sports Day - February 8th', date: '2025-01-18', source: 'General', content: 'Annual sports day on February 8th at the school ground. All students report by 7:30 AM.', important: true },
-  { id: 3, title: 'Mathematics - Additional Practice Materials', date: '2025-01-16', source: 'MTH 101', content: 'Dr. Sarah Johnson has uploaded additional practice materials.', important: false },
-  { id: 4, title: 'Parent-Teacher Meeting', date: '2025-01-14', source: 'General', content: 'Parent-teacher meeting scheduled for January 28th, 9:00 AM to 1:00 PM.', important: false },
-  { id: 5, title: 'Computer Science Lab - Schedule Change', date: '2025-01-12', source: 'CSC 101', content: 'Lab sessions rescheduled to Thursday, 5th period.', important: false },
-  { id: 6, title: 'Science Fair Registration Open', date: '2025-01-10', source: 'General', content: 'Registration open. Last date February 1st.', important: false },
-]
-
-const schedule = {
-  periods: ['8:00-8:45', '8:50-9:35', '9:40-10:25', '10:40-11:25', '11:30-12:15', '12:20-1:05', '1:10-1:55', '2:00-2:45'],
-  days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-  data: {
-    Monday: [1, 2, 3, null, 4, 5, null, 6],
-    Tuesday: [3, 1, 5, null, 2, 6, null, 4],
-    Wednesday: [5, 4, 1, null, 3, 2, null, null],
-    Thursday: [2, 6, 4, null, 5, 1, null, 3],
-    Friday: [4, 3, 6, null, 1, null, null, 5],
-  } as Record<string, (number | null)[]>,
+type StudentProfile = {
+  name: string
+  id: string
+  className: string
+  dob: string
+  gender: string
 }
+
+type TimetableEntry = {
+  dayOfWeek: number
+  startTime: string
+  endTime: string
+  courseCode: string
+  courseName: string
+}
+
+// No attendance tracking API — dashboard attendance stat uses this placeholder
+type SupportTicket = {
+  id: string
+  title: string
+  status: string
+  category: string
+  createdAt: string
+  latestUpdate: string
+}
+
+type EvaluationItem = {
+  id: string
+  teacherName: string
+  courseName: string
+  rating: number
+  comment: string
+  createdAt: string
+}
+
+const MOCK_ATTENDANCE_RATE = '96.4%'
+
+const dayLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+const periodLabels = ['8:00-8:45', '8:50-9:35', '9:40-10:25', '10:40-11:25', '11:30-12:15', '12:20-1:05', '1:10-1:55', '2:00-2:45']
 
 const colorMap: Record<ColorName, { bg: string; border: string; text: string; dot: string; badge: string; btn: string; light: string }> = {
   emerald: { bg: 'bg-emerald-50 dark:bg-emerald-950', border: 'border-emerald-200 dark:border-emerald-900', text: 'text-emerald-700 dark:text-emerald-300', dot: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300', btn: 'bg-emerald-600 hover:bg-emerald-500', light: 'bg-emerald-500/10' },
@@ -346,6 +161,23 @@ const colorMap: Record<ColorName, { bg: string; border: string; text: string; do
   purple: { bg: 'bg-purple-50 dark:bg-purple-950', border: 'border-purple-200 dark:border-purple-900', text: 'text-purple-700 dark:text-purple-300', dot: 'bg-purple-500', badge: 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300', btn: 'bg-purple-600 hover:bg-purple-500', light: 'bg-purple-500/10' },
   cyan: { bg: 'bg-cyan-50 dark:bg-cyan-950', border: 'border-cyan-200 dark:border-cyan-900', text: 'text-cyan-700 dark:text-cyan-300', dot: 'bg-cyan-500', badge: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300', btn: 'bg-cyan-600 hover:bg-cyan-500', light: 'bg-cyan-500/10' },
   rose: { bg: 'bg-rose-50 dark:bg-rose-950', border: 'border-rose-200 dark:border-rose-900', text: 'text-rose-700 dark:text-rose-300', dot: 'bg-rose-500', badge: 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300', btn: 'bg-rose-600 hover:bg-rose-500', light: 'bg-rose-500/10' },
+}
+
+const colorNames = Object.keys(colorMap) as ColorName[]
+
+// Deterministically pick a color based on the course id/code so it stays
+// consistent across renders, instead of crashing or defaulting to the same color for all.
+function getCourseColor(course: Course): ColorName {
+  console.log(course)
+  if (course.color && colorMap[course.color]) {
+    return course.color
+  }
+  const key = String(course.id ?? course.code ?? '')
+  let hash = 0
+  for (let i = 0; i < key.length; i++) {
+    hash = (hash * 31 + key.charCodeAt(i)) >>> 0
+  }
+  return colorNames[hash % colorNames.length]
 }
 
 const navItems = [
@@ -364,6 +196,9 @@ const navItems = [
 const navSections = navItems.map((item) => item.id)
 const detailSections: Section[] = ['course-detail', 'assignment-view', 'quiz-view']
 const validSections: Section[] = [...navSections, ...detailSections]
+// Tabs that show assignments/quizzes beyond the dashboard's "open only" set
+// and so need the full assignment/quiz lists fetched.
+const sectionsNeedingCourseDetail: Section[] = ['courses', 'course-detail', 'assignments', 'assignment-view', 'quizzes', 'quiz-view', 'gradebook']
 
 const listItems = <T,>(value: unknown): T[] => {
   if (Array.isArray(value)) return value as T[]
@@ -375,6 +210,141 @@ const textValue = (value: unknown, fallback = '') => typeof value === 'string' &
 const numberValue = (value: unknown, fallback = 0) => {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
+}
+const apiErrorMessage = (error: unknown, fallback: string) => {
+  const response = asRecord(asRecord(error).response)
+  const data = asRecord(response.data)
+  const message = textValue(data.message)
+  if (message) return message
+  const status = numberValue(response.status, 0)
+  if (status === 401) return 'Your session has expired. Please sign in again.'
+  if (status === 403) return 'You do not have permission to view this information.'
+  return fallback
+}
+
+function buildCourses(enrollmentRecords: unknown[], assignmentRecords: unknown[], quizRecords: unknown[]): Course[] {
+  const apiAssignments = listItems(assignmentRecords)
+  const apiQuizzes = listItems(quizRecords)
+  // Fallback ids for records missing numeric_id must be unique across all
+  // courses, not just within one course's list, or list keys collide.
+  let assignmentCounter = 0
+  let quizCounter = 0
+  return listItems(enrollmentRecords).map((item, index): Course => {
+    const record = asRecord(item)
+    const course = asRecord(record.course ?? item)
+
+    // record.course is a flat UUID string, not a nested object
+    const courseId = textValue(
+      record.course as string,        // ← use directly, not course.id
+      textValue(record.id, String(index + 1))
+    )
+    const courseAssignments = apiAssignments.filter((assignment) => {
+      const assignmentRecord = asRecord(assignment)
+      const assignmentCourseId = textValue(
+        assignmentRecord.course as string,
+        textValue(assignmentRecord.course_id)
+      )
+      const assignmentCourseName = textValue(assignmentRecord.course_name)
+      // Match by ID, falling back to course name (the dashboard endpoint's
+      // compact assignment records only carry course_name, not a course id)
+      return assignmentCourseId === courseId || (assignmentCourseName !== '' && assignmentCourseName === textValue(record.course_name))
+    })
+
+    const courseQuizzes = apiQuizzes.filter((quiz) => {
+      const quizRecord = asRecord(quiz)
+      const quizCourse = asRecord(quizRecord.course)
+      return textValue(quizCourse.id, textValue(quizRecord.course_id)) === courseId
+    })
+
+    return {
+      id: index + 1,
+      apiId: courseId,
+      name: textValue(record.course_name, `Course ${index + 1}`),
+      code: textValue(record.course_code, 'COURSE'),
+      lecturer: textValue(asRecord(record.teacher).full_name, textValue(asRecord(record.teacher).first_name + " " + asRecord(record.teacher).last_name, 'Teacher')),
+      color: ['emerald', 'blue', 'amber', 'purple', 'cyan', 'rose'][index % 6] as ColorName,
+      progress: numberValue(record.progress, 0),
+      credits: numberValue(record.credits, 0),
+      outline: [],
+      resources: [],
+      assignments: courseAssignments.map((assignment): Assignment => {
+        const assignmentRecord = asRecord(assignment)
+        assignmentCounter += 1
+        // submission_status (from the dashboard endpoint) reflects the
+        // student's own submission state; full assignment records fall back
+        // to the assignment's own status field as before.
+        const badgeStatus = textValue(assignmentRecord.submission_status, textValue(assignmentRecord.status, 'open')).toLowerCase()
+        return {
+          id: numberValue(assignmentRecord.numeric_id, assignmentCounter),
+          apiId: textValue(assignmentRecord.id, String(assignmentCounter)),
+          title: textValue(assignmentRecord.title, `Assignment ${assignmentCounter}`),
+          due: textValue(assignmentRecord.due_datetime, textValue(assignmentRecord.due, new Date().toISOString())),
+          status: badgeStatus === 'graded' ? 'graded' : badgeStatus === 'closed' ? 'closed' : badgeStatus === 'submitted' ? 'submitted' : 'open',
+          score: typeof assignmentRecord.score === 'number' ? assignmentRecord.score : null,
+          max: numberValue(assignmentRecord.total_marks, numberValue(assignmentRecord.max_score, numberValue(assignmentRecord.max_marks, 100))),
+          submittedDate: textValue(assignmentRecord.submitted_at),
+          submittedFile: undefined,
+          attempts: numberValue(assignmentRecord.attempts, 0),
+          maxAttempts: numberValue(assignmentRecord.max_attempts, 1),
+          question: textValue(assignmentRecord.instructions, textValue(assignmentRecord.question)),
+        }
+      }),
+      quizzes: courseQuizzes.map((quiz): Quiz => {
+        const quizRecord = asRecord(quiz)
+        quizCounter += 1
+        return {
+          id: numberValue(quizRecord.numeric_id, quizCounter),
+          apiId: textValue(quizRecord.id, String(quizCounter)),
+          title: textValue(quizRecord.title, `Quiz ${quizCounter}`),
+          due: textValue(quizRecord.due_datetime, new Date().toISOString()),
+          status: textValue(quizRecord.status, 'open').toLowerCase() === 'graded' ? 'graded' : textValue(quizRecord.status, 'open').toLowerCase() === 'submitted' ? 'submitted' : 'open',
+          score: typeof quizRecord.score === 'number' ? quizRecord.score : null,
+          max: numberValue(quizRecord.total_marks, 0),
+          attempts: numberValue(quizRecord.attempts, 0),
+          maxAttempts: numberValue(quizRecord.max_attempts, 1),
+          instructions: textValue(quizRecord.instructions),
+          questions: [],
+        }
+      }),
+      grades: { midterm: 0, quizzes: 0, assignments: 0, overall: 0, grade: '-', gpa: 0 },
+    }
+  })
+}
+
+function mapAnnouncement(item: unknown, index: number): AnnouncementItem {
+  const record = asRecord(item)
+  return {
+    id: numberValue(record.id, index + 1),
+    title: textValue(record.title, 'Untitled announcement'),
+    date: textValue(record.created_at, new Date().toISOString()),
+    source: textValue(record.source, textValue(record.recipient_type, 'General')),
+    content: textValue(record.body, textValue(record.content)),
+    important: Boolean(record.important || record.is_important),
+  }
+}
+
+function mapFee(item: unknown, index: number) {
+  const record = asRecord(item)
+  const term = asRecord(record.term)
+  return {
+    id: textValue(record.id, `fee-${index + 1}`),
+    amount: numberValue(record.amount, numberValue(record.total_amount, 0)),
+    amountPaid: numberValue(record.amount_paid, 0),
+    status: textValue(record.status, 'PENDING'),
+    term: textValue(term.name, textValue(record.term_name, 'Current Term')),
+  }
+}
+
+function mapTimetableEntry(item: unknown): TimetableEntry {
+  const record = asRecord(item)
+  const course = asRecord(record.course)
+  return {
+    dayOfWeek: numberValue(record.day_of_week, numberValue(record.day, 0)),
+    startTime: textValue(record.start_time, '08:00'),
+    endTime: textValue(record.end_time, '09:00'),
+    courseCode: textValue(course.code, textValue(record.course_code, 'COURSE')),
+    courseName: textValue(course.name, textValue(record.course_name, 'Course')),
+  }
 }
 
 function formatDate(date: string) {
@@ -393,6 +363,15 @@ export default function StudentDashboard() {
   const router = useRouter()
   const pathname = usePathname()
   const authUser = useAuthStore((state) => state.user)
+  const setAuthUser = useAuthStore((state) => state.setUser)
+  const tokenPayload = useMemo(() => {
+    const token = Cookies.get('access_token')
+    return token ? asRecord(decodeJWT(token)) : {}
+  }, [authUser?.id])
+  const currentStudentId = textValue(tokenPayload.user_id)
+  const currentStudentSchoolId = textValue(tokenPayload.school_id)
+  const currentStudentName = textValue(tokenPayload.full_name, 'Student')
+  const currentStudentRole = textValue(tokenPayload.active_role, Cookies.get('active_role') ?? 'STUDENT')
   const editorRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [dark, setDark] = useState(false)
@@ -409,6 +388,22 @@ export default function StudentDashboard() {
   const [quizStarted, setQuizStarted] = useState(false)
   const [quizAnswers, setQuizAnswers] = useState<Record<string, number>>({})
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [announcements, setAnnouncements] = useState<AnnouncementItem[]>([])
+  const [timetable, setTimetable] = useState<TimetableEntry[]>([])
+  const [studentFees, setStudentFees] = useState<Array<{ id: string; amount: number; amountPaid: number; status: string; term: string }>>([])
+  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([])
+  const [supportNotice, setSupportNotice] = useState('')
+  const [evaluations, setEvaluations] = useState<EvaluationItem[]>([])
+  const [evaluationNotice, setEvaluationNotice] = useState('')
+  const [profile, setProfile] = useState<StudentProfile>({
+    name: currentStudentName,
+    id: currentStudentSchoolId?? '-',
+    className: '—',
+    dob: '—',
+    gender: '—',
+  })
+
+  const initials = profile.name.split(' ').map((part) => part.charAt(0)).join('').slice(0, 2).toUpperCase() || 'ST'
 
   const allAssignments = useMemo(() => courses.flatMap((course) => course.assignments.map((assignment) => ({ ...assignment, course }))), [courses])
   const allQuizzes = useMemo(() => courses.flatMap((course) => course.quizzes.map((quiz) => ({ ...quiz, course }))), [courses])
@@ -416,92 +411,58 @@ export default function StudentDashboard() {
   const selectedAssignment = allAssignments.find(({ id }) => id === assignmentId)
   const selectedQuiz = allQuizzes.find(({ id }) => id === quizId)
 
+  const enrollmentRecordsRef = useRef<unknown[]>([])
+  const [dashboardLoaded, setDashboardLoaded] = useState(false)
+  const [heavyDataLoaded, setHeavyDataLoaded] = useState(false)
+  const [feesLoaded, setFeesLoaded] = useState(false)
+  const [timetableLoaded, setTimetableLoaded] = useState(false)
+  const [announcementsFullLoaded, setAnnouncementsFullLoaded] = useState(false)
+
+  // First paint only needs the lightweight dashboard endpoint (enrolled
+  // courses + open assignments + recent announcements) plus the student's
+  // profile — this replaces what used to be 3 of the 7 calls fired on login.
   useEffect(() => {
     let cancelled = false
 
-    async function loadStudentData() {
-      const studentId = authUser?.id
-      if (!studentId) {
+    async function loadDashboard() {
+      if (!currentStudentSchoolId) {
         setCourses([])
         setApiNotice('Sign in with a backend student account to load live course, assignment, quiz, and announcement data.')
         return
       }
 
       setApiNotice('Loading live student data from the API...')
+      setDashboardLoaded(false)
+      setHeavyDataLoaded(false)
+      setFeesLoaded(false)
+      setTimetableLoaded(false)
+      setAnnouncementsFullLoaded(false)
       try {
-        const [courseRecords, assignmentRecords, quizRecords] = await Promise.all([
-          studentsApi.courses(studentId),
-          assignmentsApi.list({ page_size: 100 }),
-          quizzesApi.list({ page_size: 100 }),
-          announcementsApi.list({ page_size: 20 }).catch(() => null),
+        const [dashboardData, studentDetail] = await Promise.all([
+          studentsApi.dashboard(currentStudentSchoolId),
+          studentsApi.detail(currentStudentSchoolId).catch(() => null),
         ])
 
         if (cancelled) return
 
-        const apiAssignments = listItems(assignmentRecords)
-        const apiQuizzes = listItems(quizRecords)
-        const mappedCourses = listItems(courseRecords).map((item, index): Course => {
-          const record = asRecord(item)
-          const course = asRecord(record.course ?? item)
-          const courseId = textValue(course.id, textValue(record.id, String(index + 1)))
-          const courseAssignments = apiAssignments.filter((assignment) => {
-            const assignmentRecord = asRecord(assignment)
-            const assignmentCourse = asRecord(assignmentRecord.course)
-            return textValue(assignmentCourse.id, textValue(assignmentRecord.course_id)) === courseId
-          })
-          const courseQuizzes = apiQuizzes.filter((quiz) => {
-            const quizRecord = asRecord(quiz)
-            const quizCourse = asRecord(quizRecord.course)
-            return textValue(quizCourse.id, textValue(quizRecord.course_id)) === courseId
-          })
+        const dashboardRecord = asRecord(dashboardData)
+        const enrollmentRecords = listItems(dashboardRecord.enrolled_courses)
+        enrollmentRecordsRef.current = enrollmentRecords
 
-          return {
-            id: index + 1,
-            name: textValue(course.name, `Course ${index + 1}`),
-            code: textValue(course.code, 'COURSE'),
-            lecturer: textValue(asRecord(record.teacher).full_name, textValue(record.teacher_name, 'Teacher')),
-            color: ['emerald', 'blue', 'amber', 'purple', 'cyan', 'rose'][index % 6] as ColorName,
-            progress: numberValue(record.progress, 0),
-            credits: numberValue(record.credits, 0),
-            outline: [],
-            resources: [],
-            assignments: courseAssignments.map((assignment, assignmentIndex): Assignment => {
-              const assignmentRecord = asRecord(assignment)
-              return {
-                id: numberValue(assignmentRecord.numeric_id, assignmentIndex + 1),
-                title: textValue(assignmentRecord.title, `Assignment ${assignmentIndex + 1}`),
-                due: textValue(assignmentRecord.due_datetime, textValue(assignmentRecord.due, new Date().toISOString())),
-                status: textValue(assignmentRecord.status, 'open').toLowerCase() === 'graded' ? 'graded' : textValue(assignmentRecord.status, 'open').toLowerCase() === 'closed' ? 'closed' : 'open',
-                score: typeof assignmentRecord.score === 'number' ? assignmentRecord.score : null,
-                max: numberValue(assignmentRecord.total_marks, numberValue(assignmentRecord.max_score, 100)),
-                submittedDate: textValue(assignmentRecord.submitted_at),
-                submittedFile: undefined,
-                attempts: numberValue(assignmentRecord.attempts, 0),
-                maxAttempts: numberValue(assignmentRecord.max_attempts, 1),
-                question: textValue(assignmentRecord.instructions, textValue(assignmentRecord.question)),
-              }
-            }),
-            quizzes: courseQuizzes.map((quiz, quizIndex): Quiz => {
-              const quizRecord = asRecord(quiz)
-              return {
-                id: numberValue(quizRecord.numeric_id, quizIndex + 1),
-                title: textValue(quizRecord.title, `Quiz ${quizIndex + 1}`),
-                due: textValue(quizRecord.due_datetime, new Date().toISOString()),
-                status: textValue(quizRecord.status, 'open').toLowerCase() === 'graded' ? 'graded' : textValue(quizRecord.status, 'open').toLowerCase() === 'submitted' ? 'submitted' : 'open',
-                score: typeof quizRecord.score === 'number' ? quizRecord.score : null,
-                max: numberValue(quizRecord.total_marks, 0),
-                attempts: numberValue(quizRecord.attempts, 0),
-                maxAttempts: numberValue(quizRecord.max_attempts, 1),
-                instructions: textValue(quizRecord.instructions),
-                questions: [],
-              }
-            }),
-            grades: { midterm: 0, quizzes: 0, assignments: 0, overall: 0, grade: '-', gpa: 0 },
-          }
-        })
-
+        const mappedCourses = buildCourses(enrollmentRecords, listItems(dashboardRecord.assignments), [])
         setCourses(mappedCourses)
+        setAnnouncements(listItems(dashboardRecord.announcements).map(mapAnnouncement))
+
+        const detail = asRecord(studentDetail)
+        setProfile({
+          name: textValue(detail.full_name, authUser?.full_name ?? 'Student'),
+          id: textValue(detail.school_id, authUser?.school_id ?? '—'),
+          className: detail.level && detail.class_section ? `Level ${detail.level} - ${detail.class_section}` : textValue(detail.program, '—'),
+          dob: textValue(detail.date_of_birth, '—'),
+          gender: textValue(detail.gender, '—'),
+        })
         setApiNotice(mappedCourses.length ? '' : 'No enrolled courses were returned by the API.')
+        setDashboardLoaded(true)
       } catch (error) {
         if (!cancelled) {
           setCourses([])
@@ -510,11 +471,88 @@ export default function StudentDashboard() {
       }
     }
 
-    loadStudentData()
+    loadDashboard()
     return () => {
       cancelled = true
     }
-  }, [authUser?.id])
+  }, [currentStudentSchoolId])
+
+  // Full assignment/quiz history is only needed by tabs that show more than
+  // "open" items (Courses, a course's own tabs, Assignments, Quizzes,
+  // Gradebook) — fetch it once, the first time the student opens one of them.
+  useEffect(() => {
+    if (!currentStudentSchoolId || !dashboardLoaded || heavyDataLoaded) return
+    if (!sectionsNeedingCourseDetail.includes(section)) return
+    let cancelled = false
+
+    async function loadCourseDetailData() {
+      try {
+        const [assignmentRecords, quizRecords] = await Promise.all([
+          assignmentsApi.list({ page_size: 100 }),
+          quizzesApi.list({ page_size: 100 }),
+        ])
+        if (cancelled) return
+        setCourses(buildCourses(enrollmentRecordsRef.current, listItems(assignmentRecords), listItems(quizRecords)))
+        setHeavyDataLoaded(true)
+      } catch (error) {
+        if (!cancelled) setApiNotice(error instanceof Error ? error.message : 'Could not load assignment and quiz data.')
+      }
+    }
+
+    loadCourseDetailData()
+    return () => {
+      cancelled = true
+    }
+  }, [section, currentStudentSchoolId, dashboardLoaded, heavyDataLoaded])
+
+  // Fees are only fetched when the Fees tab is opened.
+  useEffect(() => {
+    if (!currentStudentSchoolId || section !== 'fees' || feesLoaded) return
+    let cancelled = false
+    studentsApi.fees(currentStudentSchoolId)
+      .then((feeRecords) => {
+        if (cancelled) return
+        setStudentFees(listItems(feeRecords).map(mapFee))
+        setFeesLoaded(true)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [section, currentStudentSchoolId, feesLoaded])
+
+  // Timetable is only fetched when the Schedule tab is opened.
+  useEffect(() => {
+    if (!currentStudentSchoolId || section !== 'schedule' || timetableLoaded) return
+    let cancelled = false
+    schedulesApi.timetables({ page_size: 100 })
+      .then((timetableRecords) => {
+        if (cancelled) return
+        setTimetable(listItems(timetableRecords).map(mapTimetableEntry))
+        setTimetableLoaded(true)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [section, currentStudentSchoolId, timetableLoaded])
+
+  // The dashboard endpoint only returns the 10 most recent announcements;
+  // fetch the full list only when the Announcements tab is opened.
+  useEffect(() => {
+    if (!currentStudentSchoolId || section !== 'announcements' || announcementsFullLoaded) return
+    let cancelled = false
+    announcementsApi.list({ page_size: 20 })
+      .then((announcementRecords) => {
+        if (cancelled) return
+        setAnnouncements(listItems(announcementRecords).map(mapAnnouncement))
+        setAnnouncementsFullLoaded(true)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [section, currentStudentSchoolId, announcementsFullLoaded])
 
   useEffect(() => {
     const parts = pathname.split('/').filter(Boolean)
@@ -575,51 +613,72 @@ export default function StudentDashboard() {
     router.replace('/')
   }
 
-  const submitAssignment = (id: number) => {
+  const submitAssignment = async (id: number) => {
+    const assignment = allAssignments.find((item) => item.id === id)
     const text = editorRef.current?.textContent?.trim() ?? ''
     if (!selectedFile && text.length < 5) {
       alert('Please upload a file or type your answer.')
       return
     }
+    if (!assignment) return
 
-    setCourses((items) =>
-      items.map((course) => ({
-        ...course,
-        assignments: course.assignments.map((assignment) =>
-          assignment.id === id
-            ? {
-                ...assignment,
-                status: 'submitted',
-                attempts: assignment.attempts + 1,
-                submittedDate: new Date().toISOString().split('T')[0],
-                submittedFile: selectedFile
-                  ? { name: selectedFile.name, size: `${(selectedFile.size / 1024 / 1024).toFixed(1)} MB` }
-                  : assignment.submittedFile,
-              }
-            : assignment
-        ),
-      }))
-    )
-    setSelectedFile(null)
-    go('assignments')
+    try {
+      const formData = new FormData()
+      if (text.length >= 5) formData.append('text_content', text)
+      if (selectedFile) formData.append('file', selectedFile)
+      await assignmentsApi.submit(assignment.apiId, formData)
+      setCourses((items) =>
+        items.map((course) => ({
+          ...course,
+          assignments: course.assignments.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  status: 'submitted',
+                  attempts: item.attempts + 1,
+                  submittedDate: new Date().toISOString().split('T')[0],
+                  submittedFile: selectedFile
+                    ? { name: selectedFile.name, size: `${(selectedFile.size / 1024 / 1024).toFixed(1)} MB` }
+                    : item.submittedFile,
+                }
+              : item
+          ),
+        }))
+      )
+      setSelectedFile(null)
+      go('assignments')
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Could not submit assignment.')
+    }
   }
 
-  const submitQuiz = (id: number) => {
+  const submitQuiz = async (id: number) => {
     const quiz = allQuizzes.find((item) => item.id === id)
     if (!quiz) return
     const answered = quiz.questions.filter((_, index) => quizAnswers[`${id}-${index}`] !== undefined).length
     if (answered < quiz.questions.length && !confirm(`Answered ${answered}/${quiz.questions.length}. Submit anyway?`)) return
-    const score = quiz.questions.reduce((total, question, index) => total + (quizAnswers[`${id}-${index}`] === question.correct ? 1 : 0), 0)
 
-    setCourses((items) =>
-      items.map((course) => ({
-        ...course,
-        quizzes: course.quizzes.map((quizItem) =>
-          quizItem.id === id ? { ...quizItem, status: 'graded', score, attempts: quizItem.attempts + 1 } : quizItem
-        ),
-      }))
-    )
-    go('quizzes')
+    try {
+      const attempt = asRecord(await quizzesApi.startAttempt(quiz.apiId))
+      const attemptId = textValue(attempt.attempt_id, textValue(attempt.id))
+      const result = asRecord(await quizzesApi.submitAttempt(attemptId, quiz.questions.map((question, index) => ({
+        question_id: String(index + 1),
+        choice_ids: quizAnswers[`${id}-${index}`] !== undefined ? [String(quizAnswers[`${id}-${index}`])] : [],
+      }))))
+      const score = numberValue(result.score, 0)
+
+      setCourses((items) =>
+        items.map((course) => ({
+          ...course,
+          quizzes: course.quizzes.map((quizItem) =>
+            quizItem.id === id ? { ...quizItem, status: 'graded', score, attempts: quizItem.attempts + 1 } : quizItem
+          ),
+        }))
+      )
+      go('quizzes')
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Could not submit quiz.')
+    }
   }
 
   const isActive = (id: string) => id === section || (section === 'course-detail' && id === 'courses') || (section === 'assignment-view' && id === 'assignments') || (section === 'quiz-view' && id === 'quizzes')
@@ -627,7 +686,7 @@ export default function StudentDashboard() {
   return (
     <div className={dark ? 'dark' : ''}>
       <div className="h-screen overflow-hidden bg-slate-50 font-sans text-slate-900 dark:bg-[#0B0F19] dark:text-slate-200">
-        <MobileHeader dark={dark} setDark={setDark} setSidebarOpen={setSidebarOpen} />
+        <MobileHeader dark={dark} setDark={setDark} setSidebarOpen={setSidebarOpen} initials={initials} />
         {sidebarOpen && <button aria-label="Close menu" className="fixed inset-0 z-40 bg-black/40 lg:hidden" onClick={() => setSidebarOpen(false)} />}
 
         <div className="flex h-full">
@@ -654,10 +713,10 @@ export default function StudentDashboard() {
             <div className="shrink-0 space-y-3 border-t border-slate-100 p-4 dark:border-slate-800">
               <ThemeToggle dark={dark} setDark={setDark} />
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-slate-100 bg-emerald-50 text-sm font-semibold text-emerald-700 dark:border-slate-700 dark:bg-emerald-950 dark:text-emerald-300">AT</div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-slate-100 bg-emerald-50 text-sm font-semibold text-emerald-700 dark:border-slate-700 dark:bg-emerald-950 dark:text-emerald-300">{initials}</div>
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">{student.name}</p>
-                  <p className="truncate text-[11px] text-slate-400">{student.id}</p>
+                  <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">{profile.name}</p>
+                  <p className="truncate text-[11px] text-slate-400">{profile.id}</p>
                 </div>
               </div>
               <button onClick={logout} className="flex w-full items-center justify-center gap-2 rounded-lg py-2 text-xs text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
@@ -670,7 +729,7 @@ export default function StudentDashboard() {
           <main className="flex-1 overflow-y-auto pt-14 lg:pt-0">
             <div className="max-w-6xl p-5 lg:p-8">
               {apiNotice && <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">{apiNotice}</div>}
-              {section === 'dashboard' && <Dashboard courses={courses} assignments={allAssignments} quizzes={allQuizzes} openAssignment={openAssignment} />}
+              {section === 'dashboard' && <Dashboard profile={profile} courses={courses} assignments={allAssignments} quizzes={allQuizzes} announcements={announcements} openAssignment={openAssignment} />}
               {section === 'courses' && <Courses courses={courses} openCourse={openCourse} />}
               {section === 'course-detail' && <CourseDetail course={selectedCourse} tab={courseTab} setTab={setCourseTab} openAssignment={openAssignment} openQuiz={openQuiz} />}
               {section === 'assignments' && <AssignmentsPage assignments={allAssignments} filter={assignmentFilter} setFilter={setAssignmentFilter} openAssignment={openAssignment} />}
@@ -697,12 +756,12 @@ export default function StudentDashboard() {
                   goQuizzes={() => go('quizzes')}
                 />
               )}
-              {section === 'gradebook' && <Gradebook courses={courses} />}
-              {section === 'fees' && <StudentApiFeaturePage title="My Fees" subtitle="View your own StudentFee records from GET /students/{id}/fees and GET /student-fees/{id}/." features={['Fee balance by term', 'Payment status and amount paid', 'Receipt/payment history when provided by backend']} />}
+              {section === 'gradebook' && <Gradebook courses={courses} profile={profile} />}
+              {section === 'fees' && <FeesPage fees={studentFees} />}
               {section === 'evaluations' && <StudentApiFeaturePage title="Teacher Evaluations" subtitle="Submit one teacher evaluation per course and term." features={['POST /evaluations with teacher_id, course_id, term_id, rating, and comment', 'Show completed evaluations to prevent duplicates', 'Limit course options to enrolled courses']} />}
               {section === 'support' && <StudentApiFeaturePage title="Support Tickets" subtitle="Create and track your own support requests." features={['GET /support-tickets for your tickets', 'POST /support-tickets to request help', 'Show ticket status and latest update']} />}
-              {section === 'schedule' && <Schedule courses={courses} />}
-              {section === 'announcements' && <Announcements />}
+              {section === 'schedule' && <Schedule courses={courses} timetable={timetable} />}
+              {section === 'announcements' && <Announcements items={announcements} />}
             </div>
           </main>
         </div>
@@ -725,7 +784,7 @@ function Brand({ compact = false }: { compact?: boolean }) {
   )
 }
 
-function MobileHeader({ dark, setDark, setSidebarOpen }: { dark: boolean; setDark: (value: boolean) => void; setSidebarOpen: (value: boolean) => void }) {
+function MobileHeader({ dark, setDark, setSidebarOpen, initials }: { dark: boolean; setDark: (value: boolean) => void; setSidebarOpen: (value: boolean) => void; initials: string }) {
   return (
     <div className="fixed left-0 right-0 top-0 z-30 flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4 dark:border-slate-800 dark:bg-slate-900 lg:hidden">
       <div className="flex items-center gap-2.5">
@@ -738,7 +797,7 @@ function MobileHeader({ dark, setDark, setSidebarOpen }: { dark: boolean; setDar
         <button onClick={() => setDark(!dark)} className="flex h-9 w-9 items-center justify-center rounded-lg transition-transform hover:rotate-12 hover:bg-slate-100 dark:hover:bg-slate-800">
           {dark ? <Sun className="h-5 w-5 text-slate-400" /> : <Moon className="h-5 w-5 text-slate-500" />}
         </button>
-        <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-slate-100 bg-emerald-50 text-xs font-semibold text-emerald-700 dark:border-slate-700 dark:bg-emerald-950 dark:text-emerald-300">AT</div>
+        <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-slate-100 bg-emerald-50 text-xs font-semibold text-emerald-700 dark:border-slate-700 dark:bg-emerald-950 dark:text-emerald-300">{initials}</div>
       </div>
     </div>
   )
@@ -769,7 +828,7 @@ function Card({ children, className = '' }: { children: React.ReactNode; classNa
   return <div className={`rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800 ${className}`}>{children}</div>
 }
 
-function Dashboard({ courses, assignments, quizzes, openAssignment }: { courses: Course[]; assignments: Array<Assignment & { course: Course }>; quizzes: Array<Quiz & { course: Course }>; openAssignment: (id: number) => void }) {
+function Dashboard({ profile, courses, assignments, quizzes, announcements, openAssignment }: { profile: StudentProfile; courses: Course[]; assignments: Array<Assignment & { course: Course }>; quizzes: Array<Quiz & { course: Course }>; announcements: AnnouncementItem[]; openAssignment: (id: number) => void }) {
   const openAssignments = assignments.filter((assignment) => assignment.status === 'open')
   const pendingQuizzes = quizzes.filter((quiz) => quiz.status === 'open').length
   const totalCredits = courses.reduce((sum, course) => sum + course.credits, 0)
@@ -777,13 +836,13 @@ function Dashboard({ courses, assignments, quizzes, openAssignment }: { courses:
 
   return (
     <div className="animate-[fadeIn_.3s_ease-out]">
-      <h1 className="mb-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">Welcome back, Alex</h1>
-      <p className="mb-8 text-sm text-slate-400">{student.className} - Academic Year 2024-25</p>
+      <h1 className="mb-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">Welcome back, {profile.name.split(' ')[0]}</h1>
+      <p className="mb-8 text-sm text-slate-400">{profile.className}</p>
       <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Stat icon={<BookOpen className="h-5 w-5" />} value={courses.length} label="Enrolled Courses" tone="emerald" />
         <Stat icon={<ClipboardList className="h-5 w-5" />} value={openAssignments.length + pendingQuizzes} label="Pending Tasks" tone="amber" badge={openAssignments.length + pendingQuizzes} />
         <Stat icon={<BarChart3 className="h-5 w-5" />} value={totalGpa.toFixed(2)} label="Current GPA" tone="blue" />
-        <Stat icon={<CheckCircle2 className="h-5 w-5" />} value="96.4%" label="Attendance" tone="purple" />
+        <Stat icon={<CheckCircle2 className="h-5 w-5" />} value={MOCK_ATTENDANCE_RATE} label="Attendance" tone="purple" />
       </div>
       <div className="grid gap-6 lg:grid-cols-5">
         <div className="lg:col-span-3">
@@ -862,18 +921,29 @@ function Courses({ courses, openCourse }: { courses: Course[]; openCourse: (id: 
               <div className="p-6">
                 <div className="mb-3 flex items-start justify-between">
                   <div>
-                    <h2 className="font-semibold text-slate-900 dark:text-slate-100">{course.name}</h2>
-                    <span className="mt-1 inline-flex items-center gap-1.5 text-xs text-slate-400"><span className={`h-1.5 w-1.5 rounded-full ${colors.dot}`} />{course.code}</span>
+                    <h2 className="font-semibold text-base text-slate-900 dark:text-slate-100" style={{ fontFamily: 'Inter, sans-serif' }}>
+                      {course.name}
+                    </h2>
+                    <span
+                      className="mt-1 inline-flex items-center gap-1.5 text-xs text-slate-400"
+                      style={{ fontFamily: 'Inter, sans-serif' }}
+                    >
+                      <span className={`h-1.5 w-1.5 rounded-full ${colors.dot}`} />
+                      {course.code}
+                    </span>
                   </div>
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${colors.badge}`}>{course.progress}%</span>
+                  <span style={{ fontFamily: 'Inter, sans-serif' }} className={`rounded-full px-2.5 py-1 text-xs font-medium ${colors.badge}`}>{course.progress}%</span>
                 </div>
                 <div className="mb-4 flex items-center gap-2">
                   <User className="h-4 w-4 text-slate-300" />
-                  <span className="text-xs text-slate-500">{course.lecturer}</span>
+                  <span className="text-xs text-slate-500" style={{ fontFamily: 'Inter, sans-serif' }}>
+                    {course.lecturer}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-400">{course.assignments.filter((assignment) => assignment.status === 'open').length} open</span>
-                  <button onClick={() => openCourse(course.id)} className={`flex items-center gap-1 text-xs font-medium hover:underline ${colors.text}`}>
+                  <span className="text-xs text-slate-400" style={{ fontFamily: 'Inter, sans-serif' }}>{course.assignments.filter((assignment) => assignment.status === 'open').length} open</span>
+                  <button onClick={() => openCourse(course.id)} className={`flex items-center gap-1 text-xs font-medium hover:underline ${colors.text}`}
+                  style={{ fontFamily: 'Inter, sans-serif' }}>
                     View Course <ChevronRight className="h-3.5 w-3.5" />
                   </button>
                 </div>
@@ -887,7 +957,8 @@ function Courses({ courses, openCourse }: { courses: Course[]; openCourse: (id: 
 }
 
 function CourseDetail({ course, tab, setTab, openAssignment, openQuiz }: { course: Course; tab: CourseTab; setTab: (tab: CourseTab) => void; openAssignment: (id: number) => void; openQuiz: (id: number) => void }) {
-  const colors = colorMap[course.color]
+  console.log('Course before getCourseColor', course)
+  const colors = colorMap[getCourseColor(course)]
   const tabs: CourseTab[] = ['outline', 'resources', 'assignments', 'quizzes', 'grades']
   return (
     <div>
@@ -923,7 +994,7 @@ function CourseDetail({ course, tab, setTab, openAssignment, openQuiz }: { cours
 }
 
 function Outline({ course }: { course: Course }) {
-  const colors = colorMap[course.color]
+  const colors = colorMap[getCourseColor(course)]
   return (
     <div className="space-y-3">
       {course.outline.map((week) => (
@@ -943,7 +1014,7 @@ function Outline({ course }: { course: Course }) {
 }
 
 function Resources({ course }: { course: Course }) {
-  const colors = colorMap[course.color]
+  const colors = colorMap[getCourseColor(course)]
   return (
     <div className="space-y-3">
       {course.resources.map((resource) => {
@@ -968,12 +1039,12 @@ function Resources({ course }: { course: Course }) {
 }
 
 function CourseAssignments({ course, openAssignment }: { course: Course; openAssignment: (id: number) => void }) {
-  const colors = colorMap[course.color]
+  const colors = colorMap[getCourseColor(course)]
   return <div className="space-y-3">{course.assignments.map((assignment) => <AssessmentRow key={assignment.id} color={colors} title={assignment.title} meta={`Due ${formatDate(assignment.due)}${assignment.score !== null ? ` - Score: ${assignment.score}/${assignment.max}` : ''}`} status={assignment.status} onClick={() => openAssignment(assignment.id)} />)}</div>
 }
 
 function CourseQuizzes({ course, openQuiz }: { course: Course; openQuiz: (id: number) => void }) {
-  const colors = colorMap[course.color]
+  const colors = colorMap[getCourseColor(course)]
   return <div className="space-y-3">{course.quizzes.map((quiz) => <AssessmentRow key={quiz.id} color={colors} title={quiz.title} meta={`Due ${formatDate(quiz.due)}${quiz.score !== null ? ` - Score: ${quiz.score}/${quiz.max}` : ''}`} status={quiz.status} onClick={() => openQuiz(quiz.id)} disabled={!canViewQuiz(quiz)} />)}</div>
 }
 
@@ -996,7 +1067,7 @@ function AssessmentRow({ color, title, meta, status, onClick, disabled }: { colo
 }
 
 function CourseGrades({ course }: { course: Course }) {
-  const colors = colorMap[course.color]
+  const colors = colorMap[getCourseColor(course)]
   const grade = course.grades
   return (
     <Card className="p-6">
@@ -1025,7 +1096,7 @@ function AssignmentsPage({ assignments, filter, setFilter, openAssignment }: { a
       <FilterBar value={filter} setValue={setFilter} filters={filters} count={(item) => item === 'all' ? assignments.length : assignments.filter((assignment) => assignment.status === item).length} />
       <div className="space-y-3">
         {filtered.map((assignment) => {
-          const colors = colorMap[assignment.course.color]
+          const colors = colorMap[getCourseColor(assignment.course)]
           return (
             <Card key={assignment.id} className="flex flex-col justify-between gap-3 p-4 transition hover:-translate-y-0.5 hover:shadow-lg sm:flex-row sm:items-center">
               <div className="flex min-w-0 items-center gap-3">
@@ -1054,7 +1125,7 @@ function AssignmentsPage({ assignments, filter, setFilter, openAssignment }: { a
 }
 
 function AssignmentView({ assignment, selectedFile, setSelectedFile, fileInputRef, editorRef, submitAssignment, goAssignments }: { assignment: Assignment & { course: Course }; selectedFile: File | null; setSelectedFile: (file: File | null) => void; fileInputRef: React.RefObject<HTMLInputElement>; editorRef: React.RefObject<HTMLDivElement>; submitAssignment: (id: number) => void; goAssignments: () => void }) {
-  const colors = colorMap[assignment.course.color]
+  const colors = colorMap[getCourseColor(assignment.course)]
   const showSubmit = assignment.status === 'open' || canResubmitAssignment(assignment)
 
   const chooseFile = (fileList: FileList | null) => {
@@ -1178,7 +1249,7 @@ function QuizzesPage({ quizzes, filter, setFilter, openQuiz }: { quizzes: Array<
       <FilterBar value={filter} setValue={setFilter} filters={filters} count={(item) => item === 'all' ? quizzes.length : quizzes.filter((quiz) => quiz.status === item).length} />
       <div className="space-y-3">
         {filtered.map((quiz) => {
-          const colors = colorMap[quiz.course.color]
+          const colors = colorMap[getCourseColor(quiz.course)]
           return (
             <Card key={quiz.id} className="flex flex-col justify-between gap-3 p-4 transition hover:-translate-y-0.5 hover:shadow-lg sm:flex-row sm:items-center">
               <div className="flex items-center gap-3">
@@ -1292,7 +1363,7 @@ function QuizView({ quiz, started, setStarted, answers, setAnswers, submitQuiz, 
   )
 }
 
-function Gradebook({ courses }: { courses: Course[] }) {
+function Gradebook({ courses, profile }: { courses: Course[]; profile: StudentProfile }) {
   const printedDate = new Date().toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase().replace(/\s/g, '-')
   const semesters = [
     { name: '2024/2025 Academic Year - Semester 1', courses: courses.slice(0, 3) },
@@ -1322,11 +1393,11 @@ function Gradebook({ courses }: { courses: Course[] }) {
         </div>
         <div className="border-b border-slate-200 bg-slate-50/50 px-8 py-5 dark:border-slate-700 dark:bg-slate-900">
           <div className="grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-4">
-            <TranscriptMeta label="Student Name" value={student.name.toUpperCase()} />
-            <TranscriptMeta label="Student ID" value={student.id} mono />
-            <TranscriptMeta label="Date of Birth" value={student.dob} mono />
-            <TranscriptMeta label="Gender" value={student.gender.toUpperCase()} />
-            <TranscriptMeta label="Class" value={student.className} />
+            <TranscriptMeta label="Student Name" value={profile.name.toUpperCase()} />
+            <TranscriptMeta label="Student ID" value={profile.id} mono />
+            <TranscriptMeta label="Date of Birth" value={profile.dob} mono />
+            <TranscriptMeta label="Gender" value={profile.gender.toUpperCase()} />
+            <TranscriptMeta label="Class" value={profile.className} />
             <TranscriptMeta label="Academic Year" value="2024 / 2025" />
             <div className="sm:hidden"><TranscriptMeta label="Printed" value={printedDate} mono /></div>
           </div>
@@ -1349,33 +1420,41 @@ function Gradebook({ courses }: { courses: Course[] }) {
             </div>
           </div>
         </div>
-        <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50/50 px-8 py-4 dark:border-slate-700 dark:bg-slate-900"><p className="text-[10px] uppercase tracking-widest text-slate-400">Greenfield Academy - Official Academic Record</p><p className="font-mono text-[10px] text-slate-400">GFA-ACAD-{student.id}</p></div>
+        <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50/50 px-8 py-4 dark:border-slate-700 dark:bg-slate-900"><p className="text-[10px] uppercase tracking-widest text-slate-400">Greenfield Academy - Official Academic Record</p><p className="font-mono text-[10px] text-slate-400">GFA-ACAD-{profile.id}</p></div>
       </div>
     </div>
   )
 }
 
-function Schedule({ courses }: { courses: Course[] }) {
-  const today = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][new Date().getDay()]
+function Schedule({ courses, timetable }: { courses: Course[]; timetable: TimetableEntry[] }) {
+  const today = dayLabels[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1] ?? ''
+  const slotFor = (day: string, periodIndex: number) => {
+    const dayIndex = dayLabels.indexOf(day)
+    const period = periodLabels[periodIndex]
+    if (!period) return null
+    const [startTime] = period.split('-')
+    return timetable.find((entry) => entry.dayOfWeek === dayIndex && entry.startTime.startsWith(startTime.slice(0, 2))) ?? null
+  }
+
   return (
     <div>
       <PageTitle title="Schedule" subtitle="Weekly timetable" compact />
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[700px] text-sm">
-            <thead><tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900"><th className="w-28 px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Time</th>{schedule.days.map((day) => <th key={day} className={`px-3 py-3 text-center text-xs font-medium uppercase tracking-wider ${day === today ? 'text-emerald-600' : 'text-slate-500'}`}>{day}{day === today ? ' *' : ''}</th>)}</tr></thead>
+            <thead><tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900"><th className="w-28 px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Time</th>{dayLabels.map((day) => <th key={day} className={`px-3 py-3 text-center text-xs font-medium uppercase tracking-wider ${day === today ? 'text-emerald-600' : 'text-slate-500'}`}>{day}{day === today ? ' *' : ''}</th>)}</tr></thead>
             <tbody>
-              {schedule.periods.map((period, index) => (
+              {periodLabels.map((period, index) => (
                 <tr key={period} className="border-b border-slate-50 transition-colors hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900">
                   <td className="px-4 py-3 text-xs font-medium text-slate-400">{period}</td>
-                  {schedule.days.map((day) => {
-                    const courseId = schedule.data[day][index]
-                    const course = courseId ? courses.find((item) => item.id === courseId) : null
+                  {dayLabels.map((day) => {
                     const isBreak = index === 3 || index === 6
                     if (isBreak) return <td key={day} className="px-3 py-3 text-center text-xs italic text-slate-300">{index === 3 ? 'Break' : 'Lunch'}</td>
-                    if (!course) return <td key={day} className="px-3 py-3" />
-                    const colors = colorMap[course.color]
-                    return <td key={day} className="px-2 py-2"><div className={`rounded-lg border px-3 py-2.5 text-center ${colors.bg} ${colors.border} ${day === today ? 'ring-2 ring-emerald-400 ring-offset-1 dark:ring-offset-slate-800' : ''}`}><p className={`text-xs font-semibold leading-tight ${colors.text}`}>{course.code}</p><p className="mt-0.5 truncate text-[10px] text-slate-500">{course.name}</p></div></td>
+                    const slot = slotFor(day, index)
+                    const course = slot ? courses.find((item) => item.code === slot.courseCode) : null
+                    if (!slot && !course) return <td key={day} className="px-3 py-3" />
+                    const colors = colorMap[course?.color ?? 'emerald']
+                    return <td key={day} className="px-2 py-2"><div className={`rounded-lg border px-3 py-2.5 text-center ${colors.bg} ${colors.border} ${day === today ? 'ring-2 ring-emerald-400 ring-offset-1 dark:ring-offset-slate-800' : ''}`}><p className={`text-xs font-semibold leading-tight ${colors.text}`}>{slot?.courseCode ?? course?.code}</p><p className="mt-0.5 truncate text-[10px] text-slate-500">{slot?.courseName ?? course?.name}</p></div></td>
                   })}
                 </tr>
               ))}
@@ -1387,12 +1466,34 @@ function Schedule({ courses }: { courses: Course[] }) {
   )
 }
 
-function Announcements() {
+function FeesPage({ fees }: { fees: Array<{ id: string; amount: number; amountPaid: number; status: string; term: string }> }) {
+  const total = fees.reduce((sum, fee) => sum + fee.amount, 0)
+  const paid = fees.reduce((sum, fee) => sum + fee.amountPaid, 0)
+  return (
+    <div>
+      <PageTitle title="My Fees" subtitle="Fee balances from GET /students/{id}/fees/" compact />
+      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-3">
+        <Card className="p-5"><p className="text-xs text-slate-400">Total Expected</p><p className="text-2xl font-semibold">{total.toLocaleString()}</p></Card>
+        <Card className="p-5"><p className="text-xs text-slate-400">Paid</p><p className="text-2xl font-semibold text-emerald-600">{paid.toLocaleString()}</p></Card>
+        <Card className="p-5"><p className="text-xs text-slate-400">Outstanding</p><p className="text-2xl font-semibold text-red-500">{Math.max(total - paid, 0).toLocaleString()}</p></Card>
+      </div>
+      <Card className="overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 dark:bg-slate-900"><tr>{['Term', 'Expected', 'Paid', 'Status'].map((head) => <th key={head} className="px-5 py-3 text-left text-xs font-medium uppercase text-slate-500">{head}</th>)}</tr></thead>
+          <tbody>{fees.length ? fees.map((fee) => <tr key={fee.id} className="border-t border-slate-100 dark:border-slate-800"><td className="px-5 py-3">{fee.term}</td><td className="px-5 py-3">{fee.amount.toLocaleString()}</td><td className="px-5 py-3 text-emerald-600">{fee.amountPaid.toLocaleString()}</td><td className="px-5 py-3">{fee.status.replace(/_/g, ' ')}</td></tr>) : <tr><td colSpan={4} className="px-5 py-8 text-center text-slate-400">No fee records returned by the API.</td></tr>}</tbody>
+        </table>
+      </Card>
+    </div>
+  )
+}
+
+function Announcements({ items }: { items: AnnouncementItem[] }) {
   return (
     <div>
       <PageTitle title="Announcements" subtitle="School and course news" compact />
       <div className="space-y-4">
-        {announcements.map((announcement) => (
+        {items.length === 0 && <Card className="p-8 text-center text-sm text-slate-400">No announcements available.</Card>}
+        {items.map((announcement) => (
           <Card key={announcement.id} className={`p-6 ${announcement.important ? 'border-l-4 border-l-amber-400' : ''}`}>
             <div className="mb-2 flex items-center gap-2">
               {announcement.important && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">Important</span>}

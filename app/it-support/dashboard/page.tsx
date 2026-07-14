@@ -1,8 +1,7 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
-import Cookies from 'js-cookie'
 import { BadgeCheck, KeyRound, LifeBuoy, LogOut, Ticket } from 'lucide-react'
+import { useLogout } from '@/lib/hooks/useAuth'
 
 const features = [
   {
@@ -20,14 +19,7 @@ const features = [
 ]
 
 export default function ItSupportDashboardPage() {
-  const router = useRouter()
-
-  const logout = () => {
-    Cookies.remove('access_token')
-    Cookies.remove('refresh_token')
-    Cookies.remove('active_role')
-    router.push('/')
-  }
+  const { mutate: logout, isPending: isLoggingOut } = useLogout()
 
   return (
     <main className="min-h-screen bg-slate-50 p-6 text-slate-900">
@@ -42,9 +34,13 @@ export default function ItSupportDashboardPage() {
               <p className="text-sm text-slate-400">Support tickets and account recovery tools</p>
             </div>
           </div>
-          <button onClick={logout} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600 hover:bg-slate-100">
+          <button
+            onClick={() => logout()}
+            disabled={isLoggingOut}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+          >
             <LogOut className="h-4 w-4" />
-            Sign out
+            {isLoggingOut ? 'Signing out...' : 'Sign out'}
           </button>
         </header>
 
